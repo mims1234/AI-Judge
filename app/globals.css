@@ -34,6 +34,11 @@
   --color-teal-900: #0a2e2a;
   --color-teal-glow: rgba(45, 212, 191, 0.15);
 
+  /* Gold — site credit / footer */
+  --color-gold-300: #f0c27a;
+  --color-gold-400: #e8a54b;
+  --color-gold-500: #d4892a;
+
   /* Semantic — verdicts, feedback, status only */
   --color-pass-400: #4ade80;
   --color-pass-900: #0c2a18;

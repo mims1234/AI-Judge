@@ -336,6 +336,12 @@ export const RunSnapshotSchema = z.object({
           critical_errors: z.array(z.string()).optional(),
           specific_evidence: z.array(z.string()).optional(),
           one_best_improvement: z.string().optional(),
+          tokens: z
+            .object({ prompt: z.number(), completion: z.number() })
+            .nullable()
+            .optional(),
+          cost_usd: z.number().nullable().optional(),
+          latency_ms: z.number().nullable().optional(),
         }),
       ),
       aggregate: z

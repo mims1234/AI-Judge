@@ -212,6 +212,15 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
           typeof feedback?.one_best_improvement === "string"
             ? feedback.one_best_improvement
             : "",
+        tokens:
+          j.prompt_tokens != null
+            ? {
+                prompt: Number(j.prompt_tokens),
+                completion: Number(j.completion_tokens ?? 0),
+              }
+            : null,
+        cost_usd: j.cost_usd != null ? Number(j.cost_usd) : null,
+        latency_ms: j.latency_ms != null ? Number(j.latency_ms) : null,
       };
       const list = judgmentsByTr.get(trId) ?? [];
       list.push(mapped);

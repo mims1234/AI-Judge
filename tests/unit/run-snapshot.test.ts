@@ -93,8 +93,10 @@ describe("getRunSnapshot task content", () => {
       `INSERT INTO judgment_attempts (
         id, task_result_id, judge_model_id, attempt, is_final, is_substitute,
         parse_status, score_correctness, score_compliance, score_quality,
-        score_honesty, claimed_overall, server_overall, verdict, created_at
-      ) VALUES (?, ?, 'mock/judge-1', 1, 1, 0, 'first_try', 8, 8, 8, 8, 8, 8, 'pass', ?)`,
+        score_honesty, claimed_overall, server_overall, verdict,
+        prompt_tokens, completion_tokens, cost_usd, latency_ms, created_at
+      ) VALUES (?, ?, 'mock/judge-1', 1, 1, 0, 'first_try', 8, 8, 8, 8, 8, 8, 'pass',
+        120, 80, 0.0042, 900, ?)`,
     ).run(randomUUID(), trId, Date.now());
     prepare(
       `INSERT INTO task_scores (
@@ -110,6 +112,9 @@ describe("getRunSnapshot task content", () => {
     expect(tr.validator_results[0]!.validator).toBe("contains");
     expect(tr.judgments).toHaveLength(1);
     expect(tr.judgments[0]!.judge_model_id).toBe("mock/judge-1");
+    expect(tr.judgments[0]!.tokens).toEqual({ prompt: 120, completion: 80 });
+    expect(tr.judgments[0]!.cost_usd).toBe(0.0042);
+    expect(tr.judgments[0]!.latency_ms).toBe(900);
     expect(tr.aggregate).toEqual({
       median_overall: 8,
       disagreement: 0.5,

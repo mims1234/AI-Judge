@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Unica_One, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/ui/AppShell";
+import { SiteFooter } from "@/components/ui/SiteFooter";
 import { StatusAnnouncerProvider } from "@/components/ui/StatusAnnouncer";
 import { getKeyStatusInfo } from "@/lib/server/appSettings";
 
@@ -48,9 +49,15 @@ export default function RootLayout({
         </a>
         <StatusAnnouncerProvider>
           <AppShell serverConfigured={keyStatus.serverConfigured} />
+          {/*
+            Stacking: main (z-1) must stay above SiteFooter (z-0) so any
+            position:fixed docks inside pages (e.g. /run Continue bar) are
+            never covered by the credit footer.
+          */}
           <main id="main" className="relative z-[1] flex flex-1 flex-col">
             {children}
           </main>
+          <SiteFooter />
         </StatusAnnouncerProvider>
       </body>
     </html>

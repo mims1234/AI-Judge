@@ -300,8 +300,8 @@ export function RunWizard({
         )}
       </div>
 
-      {/* Sticky footer */}
-      <div className="fixed inset-x-0 bottom-0 border-t border-line-subtle bg-ink-950/95 backdrop-blur">
+      {/* Sticky action dock — z-30 within main (main itself is above SiteFooter) */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line-subtle bg-ink-950/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 py-3 sm:flex-row sm:items-center sm:justify-between md:px-10">
           <Button
             variant="ghost"

@@ -58,7 +58,11 @@ function rollup(snapshot: RunSnapshot, categoryFilter?: Category): CostRow[] {
     cand.cost += tr.cost_usd ?? 0;
 
     for (const j of tr.judgments) {
-      ensure(j.judge_model_id, "judge").requests += 1;
+      const judge = ensure(j.judge_model_id, "judge");
+      judge.requests += 1;
+      judge.promptTokens += j.tokens?.prompt ?? 0;
+      judge.completionTokens += j.tokens?.completion ?? 0;
+      judge.cost += j.cost_usd ?? 0;
     }
   }
 
