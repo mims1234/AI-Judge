@@ -1,0 +1,27 @@
+{
+  "id": "perfect-math",
+  "category": "math",
+  "task_snapshot": {
+    "category": "math",
+    "token_limit": 1200,
+    "task_body": "Compute free and paid subscriber counts after month 1.",
+    "output_schema": {
+      "type": "object",
+      "required": ["free_users_after_month_1", "paid_users_after_month_1"],
+      "properties": {
+        "free_users_after_month_1": { "type": "number" },
+        "paid_users_after_month_1": { "type": "number" }
+      }
+    }
+  },
+  "candidate_answer": "{\n  \"free_users_after_month_1\": 552,\n  \"paid_users_after_month_1\": 432,\n  \"calculation\": [\"600 - 48 = 552\", \"400 - 16 + 48 = 432\"],\n  \"assumptions\": [\"converts cannot churn in month 1\"]\n}",
+  "validator_findings": [
+    { "validator": "json_parseable", "passed": true, "expected_json": null, "actual_json": null, "details": "" },
+    { "validator": "math_ground_truth", "passed": true, "expected_json": "{\"free\":552,\"paid\":432}", "actual_json": "{\"free\":552,\"paid\":432}", "details": "free=552 paid=432 both match" }
+  ],
+  "human": {
+    "expected_verdict": "pass",
+    "expected_overall_range": [8, 10],
+    "must_flag": []
+  }
+}

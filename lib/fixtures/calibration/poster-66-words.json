@@ -1,0 +1,30 @@
+{
+  "id": "poster-66-words",
+  "category": "poster",
+  "task_snapshot": {
+    "category": "poster",
+    "token_limit": 800,
+    "task_body": "Write poster copy under 65 words total.",
+    "output_schema": {
+      "type": "object",
+      "required": ["headline", "tagline", "body", "cta", "word_count"],
+      "properties": {
+        "headline": { "type": "string" },
+        "tagline": { "type": "string" },
+        "body": { "type": "string" },
+        "cta": { "type": "string" },
+        "word_count": { "type": "number" }
+      }
+    }
+  },
+  "candidate_answer": "{\n  \"headline\": \"Ship Faster With Confidence\",\n  \"tagline\": \"Benchmark models before you bet the product\",\n  \"body\": \"Our lab runs eight category tasks with blind judges so you know what actually works. Stop guessing which model is good enough for production workloads and start measuring every claim with durable scored evidence today right now please\",\n  \"cta\": \"Start a run\",\n  \"word_count\": 66\n}",
+  "validator_findings": [
+    { "validator": "json_parseable", "passed": true, "expected_json": null, "actual_json": null, "details": "" },
+    { "validator": "poster_word_limit", "passed": false, "expected_json": "\"< 65\"", "actual_json": "66", "details": "66 words (≥ 65)" }
+  ],
+  "human": {
+    "expected_verdict": "fail",
+    "expected_overall_range": [1, 5],
+    "must_flag": ["65", "word"]
+  }
+}

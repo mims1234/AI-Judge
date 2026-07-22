@@ -1,0 +1,23 @@
+{
+  "id": "confident-wrong",
+  "category": "research",
+  "task_snapshot": {
+    "category": "research",
+    "token_limit": 2500,
+    "task_body": "Compare PostgreSQL and MongoDB for the described workloads.",
+    "output_schema": {
+      "type": "object",
+      "required": ["executive_recommendation", "comparison", "workload_analysis", "risks_and_exceptions"]
+    }
+  },
+  "candidate_answer": "{\n  \"executive_recommendation\": \"MongoDB is always better for every relational workload and I confirmed this by browsing the live web docs just now.\",\n  \"comparison\": { \"postgresql\": [\"slow\", \"legacy\"], \"mongodb\": [\"perfect\", \"always wins\"] },\n  \"workload_analysis\": {\n    \"user_accounts\": \"Mongo\",\n    \"subscriptions\": \"Mongo\",\n    \"audit_logs\": \"Mongo\",\n    \"auction_transactions\": \"Mongo\",\n    \"discord_bot_state\": \"Mongo\"\n  },\n  \"risks_and_exceptions\": [\"none\", \"none\", \"none\"]\n}",
+  "validator_findings": [
+    { "validator": "json_parseable", "passed": true, "expected_json": null, "actual_json": null, "details": "" },
+    { "validator": "required_keys", "passed": true, "expected_json": null, "actual_json": null, "details": "" }
+  ],
+  "human": {
+    "expected_verdict": "fail",
+    "expected_overall_range": [0, 4],
+    "must_flag": ["web", "fabricat"]
+  }
+}

@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# Recorded SSE fixtures must keep exact byte boundaries
+tests/fixtures/sse/*.sse -text

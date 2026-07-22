@@ -1,0 +1,445 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   AI Judge — design tokens (plans/07-design-system.md)
+   Dark-only "lab instrument". Teal is the sole accent. Semantic colors are
+   reserved for verdicts/feedback/status. Hex values live ONLY in this file.
+   ========================================================================== */
+
+@theme {
+  /* Ink — blue-black background scale */
+  --color-ink-950: #070b0f; /* page background */
+  --color-ink-900: #0b1117; /* primary surface */
+  --color-ink-850: #0f1720; /* raised surface */
+  --color-ink-800: #141e29; /* hover surface */
+  --color-ink-700: #1c2936; /* active/pressed surface */
+  --color-ink-600: #2a3b4d; /* strong borders on raised surfaces */
+
+  /* Line — border scale */
+  --color-line-subtle: #182430;
+  --color-line-strong: #24384a;
+  --color-line-focus: #2dd4bf;
+
+  /* Text */
+  --color-bright: #e8f1f5; /* headings, primary values, scores */
+  --color-body: #a9bcc9; /* body copy, table cells */
+  --color-dim: #66798a; /* captions, metadata, placeholders */
+  --color-faint: #42525f; /* disabled text, decorative labels */
+
+  /* Teal — the only accent */
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
+  --color-teal-600: #0d9488;
+  --color-teal-900: #0a2e2a;
+  --color-teal-glow: rgba(45, 212, 191, 0.15);
+
+  /* Semantic — verdicts, feedback, status only */
+  --color-pass-400: #4ade80;
+  --color-pass-900: #0c2a18;
+  --color-fail-400: #f87171;
+  --color-fail-900: #2d1214;
+  --color-warn-400: #fbbf24;
+  --color-warn-900: #2b2109;
+  --color-info-400: #60a5fa;
+
+  /* Score ramp (0–10) — teal deliberately excluded */
+  --color-score-terrible: #f87171;
+  --color-score-terrible-bg: #2d1214;
+  --color-score-poor: #fb923c;
+  --color-score-poor-bg: #2a1a0e;
+  --color-score-mixed: #fbbf24;
+  --color-score-mixed-bg: #2b2109;
+  --color-score-good: #a3e635;
+  --color-score-good-bg: #1a2410;
+  --color-score-excellent: #4ade80;
+  --color-score-excellent-bg: #0c2a18;
+
+  /* Radii — nothing rounder than 12px except chips/dots */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Elevation: one ambient shadow, level-2 surfaces only */
+  --shadow-raised: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+@theme inline {
+  /* Fonts — wired to next/font variables from app/layout.tsx */
+  --font-display: var(--font-display-var), Impact, sans-serif;
+  --font-sans: var(--font-sans-var), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono-var), ui-monospace, SFMono-Regular, monospace;
+}
+
+/* ---------- Base ---------- */
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-ink-950);
+  color: var(--color-body);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-teal-900);
+  color: var(--color-teal-300);
+}
+
+/* Thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Global visible focus — never suppressed */
+:focus-visible {
+  outline: 2px solid var(--color-teal-400);
+  outline-offset: 2px;
+}
+
+/* ---------- Texture: faint lab-bench grid + noise (felt, not seen) ---------- */
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      rgba(45, 212, 191, 0.03) 0,
+      rgba(45, 212, 191, 0.03) 1px,
+      transparent 1px,
+      transparent 48px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(45, 212, 191, 0.03) 0,
+      rgba(45, 212, 191, 0.03) 1px,
+      transparent 1px,
+      transparent 48px
+    );
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.025;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@media (max-width: 639px) {
+  body::before {
+    display: none; /* grid too busy on small screens */
+  }
+}
+
+/* Dialog backdrop (Drawer / Modal) */
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* Skip-to-content link */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--color-ink-850);
+  color: var(--color-bright);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-md);
+  padding: 8px 16px;
+  font-size: 0.875rem;
+}
+.skip-link:focus-visible {
+  left: 8px;
+  top: 8px;
+}
+
+/* ---------- Keyframes (plan 07 §4) ---------- */
+
+@keyframes cursor-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes cell-state {
+  0% {
+    box-shadow: 0 0 0 0 var(--color-teal-glow);
+  }
+  40% {
+    box-shadow: 0 0 0 3px var(--color-teal-glow);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+@keyframes score-pop {
+  from {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes rank-enter {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    transform: scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Motion utility classes (consumed by class, per plan 07 §4) */
+
+.stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--color-teal-400);
+  animation: cursor-blink 1s steps(1) infinite;
+}
+
+.cell-flash {
+  animation: cell-state 600ms ease-out both;
+}
+
+.score-pop {
+  animation: score-pop 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+.rank-enter {
+  animation: rank-enter 240ms ease-out both;
+  animation-delay: calc(var(--rank-index, 0) * 40ms);
+}
+
+.pulse-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+.drawer-in {
+  animation: drawer-in 200ms ease-out both;
+}
+
+.modal-in {
+  animation: modal-in 200ms ease-out both;
+}
+
+.cell-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.cell-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-teal-400),
+    transparent
+  );
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* ---------- Reduced motion: one global kill-switch ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .stream-cursor {
+    /* static ▌ glyph replacement */
+    animation: none !important;
+    opacity: 1;
+  }
+}
+
+/* ---------- Sanitized markdown renderer styles (.md-body) ---------- */
+
+.md-body {
+  font-family: var(--font-sans);
+  color: var(--color-body);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  color: var(--color-bright);
+  font-weight: 600;
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+}
+.md-body h1 {
+  font-size: 1.125rem;
+}
+.md-body h2 {
+  font-size: 1.0625rem;
+}
+.md-body h3,
+.md-body h4 {
+  font-size: 1rem;
+}
+.md-body p {
+  margin: 0.5em 0;
+}
+.md-body ul,
+.md-body ol {
+  margin: 0.5em 0;
+  padding-left: 1.4em;
+}
+.md-body ul {
+  list-style: disc;
+}
+.md-body ol {
+  list-style: decimal;
+}
+.md-body li {
+  margin: 0.25em 0;
+}
+.md-body code {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  background: var(--color-ink-800);
+  border: 1px solid var(--color-line-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+}
+.md-body pre {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  background: var(--color-ink-950);
+  border: 1px solid var(--color-line-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.75em 1em;
+  overflow-x: auto;
+  margin: 0.75em 0;
+}
+.md-body pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.md-body a {
+  color: var(--color-teal-400);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md-body a:hover {
+  color: var(--color-teal-300);
+}
+.md-body table {
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  width: 100%;
+  font-size: 0.8125rem;
+}
+.md-body th,
+.md-body td {
+  border: 1px solid var(--color-line-subtle);
+  padding: 0.35em 0.7em;
+  text-align: left;
+}
+.md-body th {
+  color: var(--color-bright);
+  background: var(--color-ink-850);
+}
+.md-body blockquote {
+  border-left: 2px solid var(--color-line-strong);
+  padding-left: 1em;
+  color: var(--color-dim);
+  margin: 0.75em 0;
+}
+.md-body hr {
+  border: none;
+  border-top: 1px solid var(--color-line-subtle);
+  margin: 1em 0;
+}
+.md-body strong {
+  color: var(--color-bright);
+}

@@ -1,0 +1,27 @@
+{
+  "id": "roleplay-4-questions",
+  "category": "roleplay",
+  "task_snapshot": {
+    "category": "roleplay",
+    "token_limit": 1200,
+    "task_body": "Ask exactly 3 diagnostic questions and give 5 triage steps.",
+    "output_schema": {
+      "type": "object",
+      "required": ["response", "diagnostic_questions", "triage_steps", "likely_evidence_needed"],
+      "properties": {
+        "diagnostic_questions": { "type": "array", "exactCount": 3 },
+        "triage_steps": { "type": "array", "exactCount": 5 }
+      }
+    }
+  },
+  "candidate_answer": "{\n  \"response\": \"Take a breath — we will walk through this calmly.\",\n  \"diagnostic_questions\": [\"What changed in the last deploy?\", \"Do logs show upstream timeouts?\", \"Is the reverse proxy healthy?\", \"Did health checks flip?\"],\n  \"triage_steps\": [\"Check container logs\", \"Verify upstream\", \"Confirm ports\", \"Inspect proxy\", \"Collect evidence\"],\n  \"likely_evidence_needed\": \"Matching 502 timestamps in proxy and app logs.\"\n}",
+  "validator_findings": [
+    { "validator": "json_parseable", "passed": true, "expected_json": null, "actual_json": null, "details": "" },
+    { "validator": "roleplay_counts", "passed": false, "expected_json": "{\"questions\":3,\"steps\":5}", "actual_json": "{\"questions\":4,\"steps\":5}", "details": "got 4 questions and 5 steps" }
+  ],
+  "human": {
+    "expected_verdict": "partial_pass",
+    "expected_overall_range": [3, 7],
+    "must_flag": ["3", "question"]
+  }
+}
