@@ -7,7 +7,7 @@ import { Select } from "@/components/ui/Input";
 import { StreamPanel } from "@/components/ui/StreamPanel";
 import { formatRelativeTime, formatScore } from "@/lib/format";
 import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
-import type { SameTaskAnswer } from "@/lib/server/analytics";
+import type { SameTaskAnswer } from "@/lib/analytics/types";
 
 export type SameTaskAnswersProps = {
   modelIds: string[];

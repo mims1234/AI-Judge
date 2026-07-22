@@ -1,4 +1,4 @@
-import type { BundleRow } from "@/lib/server/bundles";
+import type { BundleRow } from "@/lib/bundles/types";
 
 /** Version changelog entries (plans/08 §3.2). Server-rendered. */
 export function ChangelogList({ bundles }: { bundles: BundleRow[] }) {

@@ -6,7 +6,11 @@ import { CollapsibleSection } from "@/components/bundles/CollapsibleSection";
 import { TaskCardGrid } from "@/components/bundles/TaskCardGrid";
 import { buttonClasses } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { getBundleTasks, listBundles } from "@/lib/server/bundles";
+import {
+  getBundleTasks,
+  getDefaultBundle,
+  listBundles,
+} from "@/lib/server/bundles";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +39,7 @@ export default async function BundlesPage({ searchParams }: { searchParams: Sear
 
   const selected =
     bundles.find((b) => b.slug === bundleParam || b.id === bundleParam) ??
+    getDefaultBundle() ??
     bundles.find((b) => b.status === "published") ??
     bundles[0]!;
 

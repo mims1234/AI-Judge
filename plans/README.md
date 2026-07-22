@@ -38,6 +38,8 @@ Each numbered file is a **self-contained spec**: purpose, detailed spec, files t
 | [10-leaderboard-analytics.md](10-leaderboard-analytics.md) | Analytics UI | `/leaderboard`, `/compare`, `/judges`, the completed-run Report tab, and hand-rolled SVG chart primitives. | `app/leaderboard/*`, `app/compare/*`, `app/judges/*`, `components/charts|leaderboard|compare|judges|report/*` |
 | [11-testing-verification.md](11-testing-verification.md) | Tests | Vitest units, integration tests against a mock OpenRouter + temp SQLite, Playwright E2E, accessibility checks. | `vitest.config.ts`, `playwright.config.ts`, `tests/unit/*`, `tests/integration/*`, `tests/e2e/*` |
 | [12-env-deployment.md](12-env-deployment.md) | Ops / scaffold | create-next-app scaffold, dependencies, env contract, Windows notes, single-process run model, backups, npm scripts. | `package.json`, `tsconfig.json`, `.env.example`, `.gitignore`, `.gitattributes`, `lib/env.ts`, `scripts/migrate.ts`, `scripts/backup.ts`, root `README.md` |
+| [13-bundle-catalog.md](13-bundle-catalog.md) | Bundle catalog | Live inventory (Octant + Keel), purpose-first instrument naming, future Stylus/Prism stubs, versioning workflow. | `plans/13-bundle-catalog.md`, `tests/unit/bundle-identity.test.ts` |
+| [14-keel-bundle.md](14-keel-bundle.md) | `lib/bundles/keel-v1.ts` | Keel engineering-depth pack: metadata, hash, migration 003 contract. | `lib/bundles/keel-v1.ts`, `lib/db.ts` migration `003_seed_keel_v1` |
 
 ## Ownership tracks for parallel AI models
 

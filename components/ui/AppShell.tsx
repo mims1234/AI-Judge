@@ -9,7 +9,7 @@ import { StatusDot } from "@/components/ui/StatusDot";
 const NAV_LINKS = [
   { href: "/models", label: "Models" },
   { href: "/bundles", label: "Bundles" },
-  { href: "/run", label: "Run", match: ["/run", "/runs"] },
+  { href: "/runs", label: "Runs", match: ["/run", "/runs"] },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/compare", label: "Compare" },
   { href: "/judges", label: "Judges" },

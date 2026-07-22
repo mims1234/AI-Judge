@@ -3,13 +3,13 @@ import { defineConfig, devices } from "@playwright/test";
 
 /**
  * Playwright E2E config (plans/11 §3).
- * webServer boots Next with mock OpenRouter + temp DB; global-setup starts the mock.
+ * webServer runs tests/e2e/start-stack.mjs (mock OpenRouter + next dev + temp DB).
  */
-const mockPort = Number(process.env.AI_JUDGE_MOCK_PORT ?? 4099);
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3000";
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3005";
 
 export default defineConfig({
   testDir: "tests/e2e",
+  testMatch: "**/*.spec.ts",
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
@@ -30,11 +30,11 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npx cross-env OPENROUTER_API_KEY=test-key OPENROUTER_BASE_URL=http://127.0.0.1:${mockPort} DATABASE_PATH=${path
-      .join("data", "e2e-ai-judge.sqlite")
-      .replace(/\\/g, "/")} next dev -p 3000`,
+    // Always boot the mock+Next stack on :3005 so a casual `next dev` on :3000
+    // cannot silently steal the suite away from the OpenRouter mock.
+    command: "npx cross-env PORT=3005 AI_JUDGE_MOCK_PORT=4099 node tests/e2e/start-stack.mjs",
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 180_000,
   },
 });

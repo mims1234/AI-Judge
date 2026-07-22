@@ -8,7 +8,7 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { formatPercent, formatScore } from "@/lib/format";
-import type { JudgeDetail, JudgeRollup } from "@/lib/server/analytics";
+import type { JudgeDetail, JudgeRollup } from "@/lib/analytics/types";
 
 export type JudgeTableProps = {
   rollups: JudgeRollup[];

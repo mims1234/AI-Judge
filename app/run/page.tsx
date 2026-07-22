@@ -6,7 +6,11 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { buildDemoCatalog } from "@/lib/mocks/catalog";
 import { getModelCatalog } from "@/lib/openrouter";
 import { getAppSettings } from "@/lib/server/appSettings";
-import { getBundleTasks, listBundles } from "@/lib/server/bundles";
+import {
+  getBundleTasks,
+  listBundles,
+  sortBundlesForPicker,
+} from "@/lib/server/bundles";
 
 export const dynamic = "force-dynamic";
 
@@ -48,7 +52,9 @@ export default async function RunPage({ searchParams }: { searchParams: SearchPa
   const { demo } = await searchParams;
   const isDemo = demo === "1";
 
-  const published = listBundles().filter((b) => b.status === "published");
+  const published = sortBundlesForPicker(
+    listBundles().filter((b) => b.status === "published"),
+  );
   const bundles = published.map((b) => ({
     ...b,
     categoryCount: getBundleTasks(b.id).length,

@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { shortId } from "@/lib/format";
-import type { BundleRow } from "@/lib/server/bundles";
+import type { BundleRow } from "@/lib/bundles/types";
 
 /** Bundle version header: status, content hash, meta, CTA (plans/08 §3.2). Server-rendered. */
 export function BundleHeaderCard({ bundle }: { bundle: BundleRow }) {

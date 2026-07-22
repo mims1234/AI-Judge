@@ -1,7 +1,10 @@
+import "server-only";
+
 import type BetterSqlite3 from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
 import { getEnv } from "@/lib/env";
+import { KEEL_V1, keelContentHash } from "@/lib/bundles/keel-v1";
 import { MINI_V1, computeContentHash } from "@/lib/bundles/mini-v1";
 
 /**
@@ -364,10 +367,60 @@ function migration002(db: Database): void {
   }
 }
 
+function migration003(db: Database): void {
+  const now = Date.now();
+  const bundleId = crypto.randomUUID();
+  const contentHash = keelContentHash();
+
+  const insertBundle = db.prepare(`
+    INSERT INTO bundles (
+      id, name, version, slug, content_hash, status, changelog, created_at
+    ) VALUES (
+      @id, @name, @version, @slug, @content_hash, @status, @changelog, @created_at
+    )
+  `);
+
+  const insertTask = db.prepare(`
+    INSERT INTO tasks (
+      id, bundle_id, category, wrapper, task_body, judge_prompt,
+      output_schema, token_limit, weight
+    ) VALUES (
+      @id, @bundle_id, @category, @wrapper, @task_body, @judge_prompt,
+      @output_schema, @token_limit, @weight
+    )
+  `);
+
+  insertBundle.run({
+    id: bundleId,
+    name: KEEL_V1.name,
+    version: KEEL_V1.version,
+    slug: KEEL_V1.slug,
+    content_hash: contentHash,
+    status: KEEL_V1.status,
+    changelog: KEEL_V1.changelog,
+    created_at: now,
+  });
+
+  for (const task of KEEL_V1.tasks) {
+    insertTask.run({
+      id: crypto.randomUUID(),
+      bundle_id: bundleId,
+      category: task.category,
+      wrapper: KEEL_V1.wrapper,
+      task_body: task.task_body,
+      judge_prompt: task.judge_prompt,
+      output_schema: JSON.stringify(task.output_schema),
+      token_limit: task.token_limit,
+      weight: task.weight,
+    });
+  }
+}
+
 /** Append-only migration list. Never edit an applied migration — add a new one. */
 const MIGRATIONS: Migration[] = [
   { id: 1, name: "001_initial_schema", up: migration001 },
   { id: 2, name: "002_seed_mini_benchmark_v1", up: migration002 },
+  { id: 3, name: "003_seed_keel_v1", up: migration003 },
 ];
 
 function runMigrations(db: Database): void {

@@ -93,9 +93,11 @@ export function aggregateTask(taskResultId: string): {
       j.server_overall != null &&
       (j.parse_status === "first_try" || j.parse_status === "repaired"),
   );
-  if (valid.length !== 3) {
+  // Prefer a full panel of 3, but keep a score when reserves are exhausted and
+  // one judge slot failed JSON — voiding the whole task throws away paid work.
+  if (valid.length < 1 || valid.length > 3) {
     throw new Error(
-      `aggregateTask requires 3 valid final judgments, got ${valid.length}`,
+      `aggregateTask requires 1–3 valid final judgments, got ${valid.length}`,
     );
   }
 

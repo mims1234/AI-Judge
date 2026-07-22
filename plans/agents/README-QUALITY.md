@@ -12,12 +12,13 @@ You build the complete verification layer for AI Judge: Vitest unit suites for t
 2. [../11-testing-verification.md](../11-testing-verification.md) — your primary spec: every test file, case list, fixture tree, smoke checklist
 3. [../12-env-deployment.md](../12-env-deployment.md) — npm scripts, env override contract, backup script, security baseline you verify
 4. [../02-seed-bundle.md](../02-seed-bundle.md) + [../06-scoring-judging.md](../06-scoring-judging.md) — validator boundaries and scoring math your tests pin
+5. [../13-bundle-catalog.md](../13-bundle-catalog.md) — Octant/`mini-benchmark-v1` identity + content-hash pin (`tests/unit/bundle-identity.test.ts`)
 5. [../README.md](../README.md) — collision rules and the shared-contract "do not break" list
 
 ## You own (create/edit)
 
 - `vitest.config.ts`, `playwright.config.ts`
-- `tests/unit/panel-selection.test.ts`, `tests/unit/scoring.test.ts`, `tests/unit/eligibility.test.ts`, `tests/unit/cost.test.ts`, `tests/unit/retry.test.ts`, `tests/unit/idempotency.test.ts`, `tests/unit/calibration.test.ts`
+- `tests/unit/panel-selection.test.ts`, `tests/unit/scoring.test.ts`, `tests/unit/eligibility.test.ts`, `tests/unit/cost.test.ts`, `tests/unit/retry.test.ts`, `tests/unit/idempotency.test.ts`, `tests/unit/calibration.test.ts`, `tests/unit/bundle-identity.test.ts`
 - `tests/unit/validators/common.test.ts`, `tests/unit/validators/math.test.ts`, `tests/unit/validators/coding.test.ts`, `tests/unit/validators/dispatch.test.ts`
 - `tests/integration/helpers/mock-openrouter.ts` (scriptable in-process mock: models list, byte-exact SSE replays, 429/500/hang/socket-drop behaviors), `tests/integration/helpers/test-db.ts` (temp SQLite + migrations)
 - `tests/integration/stream-parsing.test.ts`, `tests/integration/judge-repair.test.ts`, `tests/integration/cancellation.test.ts`, `tests/integration/sse-reconnect.test.ts`, `tests/integration/crash-recovery.test.ts`

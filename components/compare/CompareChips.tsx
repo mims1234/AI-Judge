@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Input";
-import type { BundleRow } from "@/lib/server/bundles";
+import type { BundleRow } from "@/lib/bundles/types";
 
 export type CompareChipsProps = {
   bundleSlug: string;

@@ -246,6 +246,8 @@ Every module MUST comply with these; they are what keeps the leaderboard honest.
 | `plans/09-run-workbench.md` | `app/run`, `app/runs/[id]`, arena components | Four-step setup, arena grid, stream drawer, judge cards, run controls, SSE client |
 | `plans/10-leaderboard-analytics.md` | `app/leaderboard`, `app/compare`, `app/judges`, report tab | Leaderboard, compare, judge analytics, run report, chart primitives, export UX |
 | `plans/11-testing-verification.md` | tests | Vitest units, integration fixtures, Playwright E2E, accessibility checks |
+| `plans/13-bundle-catalog.md` | bundle catalog | Live Octant + Keel inventory, purpose-first instrument naming, future Stylus/Prism |
+| `plans/14-keel-bundle.md` | `lib/bundles/keel-v1.ts` | Keel engineering-depth seed; migration 003 |
 | `plans/12-env-deployment.md` | ops | Env setup, dependencies, npm scripts, single-process hosting, backups, smoke-run procedure |
 
 ## Files to implement

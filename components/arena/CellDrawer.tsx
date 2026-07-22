@@ -56,10 +56,18 @@ export function CellDrawer({
     () => (cell ? [...cell.trials.keys()].sort((a, b) => a - b) : []),
     [cell],
   );
+  const preferredTrial = useMemo(() => {
+    if (!cell) return 0;
+    const scored = trialIndices.find((i) => {
+      const t = cell.trials.get(i);
+      return t?.status === "scored" && t.median != null;
+    });
+    return scored ?? trialIndices[0] ?? 0;
+  }, [cell, trialIndices]);
   const activeTrial =
     trialFromUrl != null && trialIndices.includes(trialFromUrl)
       ? trialFromUrl
-      : (trialIndices[0] ?? 0);
+      : preferredTrial;
   const trial = cell?.trials.get(activeTrial);
   const [tab, setTab] = useState("answer");
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
 import { shortId } from "@/lib/format";
-import type { BundleRow } from "@/lib/server/bundles";
+import type { BundleRow } from "@/lib/bundles/types";
 
 const CATEGORY_LABELS: Record<Category, string> = {
   roleplay: "Roleplay",

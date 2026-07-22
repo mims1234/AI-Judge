@@ -21,20 +21,23 @@ export type ArenaCellProps = {
 
 function pickTrial(cell: CellState | undefined) {
   if (!cell || cell.trials.size === 0) return null;
-  // Prefer lowest trial index for display; medianAcrossTrials for score
-  const indices = [...cell.trials.keys()].sort((a, b) => a - b);
-  return cell.trials.get(indices[0]!) ?? null;
+  const trials = [...cell.trials.entries()].sort((a, b) => a[0] - b[0]);
+  // Prefer a scored trial so a sibling infra/judge failure does not blank the cell
+  const scored = trials.find(([, t]) => t.status === "scored" && t.median != null);
+  if (scored) return scored[1];
+  return trials[0]?.[1] ?? null;
 }
 
 function statusOf(cell: CellState | undefined): TaskResultStatus | "empty" {
   if (!cell || cell.trials.size === 0) return "empty";
-  // Aggregate: if any streaming/judging prefer that; else if all scored; else worst
+  // Aggregate: in-progress wins; then any scored trial (keep the number);
+  // only show ✕ when nothing scored.
   const statuses = [...cell.trials.values()].map((t) => t.status);
   if (statuses.some((s) => s === "streaming")) return "streaming";
   if (statuses.some((s) => s === "judging")) return "judging";
   if (statuses.some((s) => s === "validating")) return "validating";
+  if (statuses.some((s) => s === "scored")) return "scored";
   if (statuses.some((s) => s === "error")) return "error";
-  if (statuses.every((s) => s === "scored")) return "scored";
   return statuses[0] ?? "pending";
 }
 

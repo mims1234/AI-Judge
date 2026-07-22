@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Select } from "@/components/ui/Input";
 import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
-import type { BundleRow } from "@/lib/server/bundles";
+import type { BundleRow } from "@/lib/bundles/types";
 
 export type LeaderboardControlsProps = {
   bundles: BundleRow[];

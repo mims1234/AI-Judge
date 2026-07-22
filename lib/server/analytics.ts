@@ -1,7 +1,24 @@
+import "server-only";
+
+import type {
+  CalibrationRow,
+  JudgeDetail,
+  JudgeRollup,
+  ModelRunStats,
+  SameTaskAnswer,
+} from "@/lib/analytics/types";
 import { prepare } from "@/lib/db";
 import type { Category } from "@/lib/schemas";
 import { median, queryJudgeRollups, queryLeaderboard, type LeaderboardRow } from "@/lib/scoring";
 import { getBundleBySlugOrId } from "@/lib/server/bundles";
+
+export type {
+  CalibrationRow,
+  JudgeDetail,
+  JudgeRollup,
+  ModelRunStats,
+  SameTaskAnswer,
+};
 
 /**
  * Server-only analytics reads for /leaderboard, /compare, /judges and the
@@ -33,8 +50,6 @@ export function getLeaderboardData(
 
 /* -------------------------------- Judges --------------------------------- */
 
-export type JudgeRollup = ReturnType<typeof queryJudgeRollups>[number];
-
 export function getJudgeRollups(bundleId?: string): JudgeRollup[] {
   try {
     return queryJudgeRollups(bundleId);
@@ -42,21 +57,6 @@ export function getJudgeRollups(bundleId?: string): JudgeRollup[] {
     return [];
   }
 }
-
-export type JudgeDetail = {
-  recentOveralls: Array<{ overall: number; panelMedian: number }>; // last 20, oldest→newest
-  flaggedJudgments: Array<{
-    taskResultId: string;
-    runId: string;
-    category: string;
-    candidate: string;
-    spread: number;
-    median: number;
-    verdict: string | null;
-    createdAt: string;
-  }>;
-  parseBreakdown: { firstTry: number; repaired: number; invalid: number };
-};
 
 export function getJudgeDetail(judgeModelId: string): JudgeDetail {
   const recent = prepare(
@@ -130,17 +130,6 @@ export function getPanelWideSigma(): number | null {
 
 /* ------------------------------ Calibration ------------------------------ */
 
-export type CalibrationRow = {
-  id: string;
-  fixture: string;
-  judge_model_id: string;
-  evidence_quality: number | null;
-  consistency: number | null;
-  correctness: number | null;
-  parse_status: "first_try" | "repaired" | "invalid";
-  created_at: string;
-};
-
 export function getCalibrationResults(): CalibrationRow[] {
   const rows = prepare(
     `SELECT id, fixture, judge_model_id, evidence_quality, consistency,
@@ -160,15 +149,6 @@ export function getCalibrationResults(): CalibrationRow[] {
 }
 
 /* -------------------------------- Compare -------------------------------- */
-
-export type ModelRunStats = {
-  completeRuns: number;
-  incompleteRuns: number;
-  medianScore: number | null;
-  q1: number | null;
-  q3: number | null;
-  scores: number[]; // ordered by run date
-};
 
 function quartile(sorted: number[], q: number): number | null {
   if (sorted.length === 0) return null;
@@ -219,25 +199,6 @@ export function getModelsWithCompleteRuns(bundleSlug: string): string[] {
   ).all(bundle.id) as Array<{ m: string }>;
   return rows.map((r) => r.m);
 }
-
-export type SameTaskAnswer = {
-  modelId: string;
-  found: boolean;
-  runId: string | null;
-  runDate: string | null;
-  answer: string | null;
-  median: number | null;
-  spread: number | null;
-  flagged: boolean;
-  validatorsPassed: number;
-  validatorsTotal: number;
-  feedback: {
-    good: string[];
-    terrible: string[];
-    missing: string[];
-    improvements: string[];
-  };
-};
 
 /** Each model's answer for one category, from its latest complete run (plans/10 §3.2). */
 export function getSameTaskAnswers(

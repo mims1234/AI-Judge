@@ -1,7 +1,7 @@
 import { ScoreDistributionStrip } from "@/components/charts/ScoreDistributionStrip";
 import { Badge } from "@/components/ui/Badge";
 import { formatRelativeTime, formatScore } from "@/lib/format";
-import type { JudgeDetail } from "@/lib/server/analytics";
+import type { JudgeDetail } from "@/lib/analytics/types";
 
 export type JudgeRowExpansionProps = {
   detail: JudgeDetail;

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -80,12 +81,15 @@ export function VirtualList({
   const end = Math.min(items.length, findIndex(scrollTop + height) + 1 + overscan);
 
   // Report the first fully-visible index (sticky-header tracking).
+  // Must run in an effect — calling into parent setState during render
+  // triggers "Cannot update a component while rendering a different component".
   const firstVisible = findIndex(scrollTop);
   const lastReported = useRef(-1);
-  if (onVisibleStartChange && firstVisible !== lastReported.current) {
+  useEffect(() => {
+    if (!onVisibleStartChange || firstVisible === lastReported.current) return;
     lastReported.current = firstVisible;
     onVisibleStartChange(firstVisible);
-  }
+  }, [firstVisible, onVisibleStartChange]);
 
   useImperativeHandle(listRef, () => ({
     scrollItemIntoView: (index: number) => {

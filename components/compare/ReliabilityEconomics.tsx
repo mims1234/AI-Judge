@@ -6,7 +6,7 @@ import {
   formatUsd,
 } from "@/lib/format";
 import type { LeaderboardRow } from "@/lib/scoring";
-import type { ModelRunStats } from "@/lib/server/analytics";
+import type { ModelRunStats } from "@/lib/analytics/types";
 
 export type ReliabilityEconomicsProps = {
   rows: LeaderboardRow[];

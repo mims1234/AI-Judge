@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { Tabs } from "@/components/ui/Tabs";
 import { formatScore } from "@/lib/format";
-import type { CalibrationRow } from "@/lib/server/analytics";
+import type { CalibrationRow } from "@/lib/analytics/types";
 
 export type CalibrationTableProps = {
   rows: CalibrationRow[];

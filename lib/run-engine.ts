@@ -216,9 +216,91 @@ class RunEngineImpl implements RunEngine {
     const running = rows.filter((r) => r.status === "running");
     const queued = rows.filter((r) => r.status === "queued");
     for (const r of [...running, ...queued]) {
+      this.rescueSalvageableJudgingFailures(r.id);
       if (!this.queue.includes(r.id)) this.queue.push(r.id);
     }
     void this.pump();
+  }
+
+  /**
+   * Re-score tasks that were voided as judging_failure even though ≥1 judge
+   * returned valid JSON (common with a 3-judge pool and no reserves).
+   */
+  private rescueSalvageableJudgingFailures(runId: string): void {
+    const errored = prepare(
+      `SELECT id, error FROM task_results
+       WHERE run_id = ? AND status = 'error'`,
+    ).all(runId) as Array<{ id: string; error: string | null }>;
+
+    for (const row of errored) {
+      let kind: string | undefined;
+      try {
+        kind = row.error
+          ? (JSON.parse(row.error) as { kind?: string }).kind
+          : undefined;
+      } catch {
+        continue;
+      }
+      if (kind !== "judging_failure") continue;
+
+      const validCount = (
+        prepare(
+          `SELECT COUNT(*) AS n FROM judgment_attempts
+           WHERE task_result_id = ? AND is_final = 1
+             AND parse_status IN ('first_try','repaired')
+             AND server_overall IS NOT NULL`,
+        ).get(row.id) as { n: number }
+      ).n;
+      if (validCount < 1) continue;
+
+      try {
+        const agg = aggregateTask(row.id);
+        const meta = prepare(
+          `SELECT tr.task_id, tr.candidate_model_id, tr.trial_index, t.category
+           FROM task_results tr
+           JOIN tasks t ON t.id = tr.task_id
+           WHERE tr.id = ?`,
+        ).get(row.id) as {
+          task_id: string;
+          candidate_model_id: string;
+          trial_index: number;
+          category: Category;
+        };
+
+        prepare(
+          `UPDATE task_results SET status = 'scored', error = NULL, finished_at = ?
+           WHERE id = ?`,
+        ).run(Date.now(), row.id);
+
+        this.emitEvent(runId, "notice", {
+          runId,
+          scope: "task",
+          code: "PARTIAL_JUDGE_PANEL",
+          message: `Rescued score from ${validCount}/3 valid judgments`,
+          taskResultId: row.id,
+          details: { validCount, expected: 3, rescued: true },
+        });
+        this.emitEvent(runId, "task.scored", {
+          runId,
+          taskResultId: row.id,
+          taskId: meta.task_id,
+          category: meta.category,
+          candidateModelId: meta.candidate_model_id,
+          trialIndex: meta.trial_index,
+          median: agg.median_overall,
+          disagreement: agg.disagreement,
+          flagged: agg.flagged,
+          judgeOveralls: agg.judgeOveralls,
+        });
+        this.emitTaskStatus(runId, row.id, "scored");
+      } catch (err) {
+        console.error(
+          "[run-engine] rescueSalvageableJudgingFailures failed",
+          row.id,
+          err,
+        );
+      }
+    }
   }
 
   enqueue(runId: string): void {
@@ -547,6 +629,9 @@ class RunEngineImpl implements RunEngine {
       >;
       pricing_snapshot?: Record<string, unknown>;
     };
+
+    // Salvage prior voided panels before scheduling new work
+    this.rescueSalvageableJudgingFailures(runId);
 
     const categories = CATEGORY_ORDER.filter((c) =>
       params.categories.includes(c),
@@ -1604,36 +1689,45 @@ class RunEngineImpl implements RunEngine {
       return false;
     };
 
-    const results = await Promise.allSettled(slots.map((s) => judgeOne(s)));
+    await Promise.allSettled(slots.map((s) => judgeOne(s)));
     if (ctrl.cancelRequested) return;
 
-    const allOk =
-      results.every((r) => r.status === "fulfilled" && r.value === true) &&
-      (
-        prepare(
-          `SELECT COUNT(*) AS n FROM judgment_attempts
-           WHERE task_result_id = ? AND is_final = 1
-             AND parse_status IN ('first_try','repaired')`,
-        ).get(taskResultId) as { n: number }
-      ).n >= 3;
+    const validCount = (
+      prepare(
+        `SELECT COUNT(*) AS n FROM judgment_attempts
+         WHERE task_result_id = ? AND is_final = 1
+           AND parse_status IN ('first_try','repaired')`,
+      ).get(taskResultId) as { n: number }
+    ).n;
 
-    if (!allOk) {
+    if (validCount < 1) {
       prepare(
         `UPDATE task_results SET status = 'error', error = ?, finished_at = ?
          WHERE id = ?`,
       ).run(
         JSON.stringify({
           kind: "judging_failure",
-          message: "judge panel failed to produce 3 valid judgments",
+          message: "judge panel failed to produce any valid judgments",
         }),
         Date.now(),
         taskResultId,
       );
       this.emitTaskStatus(runId, taskResultId, "error", {
         kind: "judging_failure",
-        message: "judge panel failed to produce 3 valid judgments",
+        message: "judge panel failed to produce any valid judgments",
       });
       return;
+    }
+
+    if (validCount < 3) {
+      this.emitEvent(runId, "notice", {
+        runId,
+        scope: "task",
+        code: "PARTIAL_JUDGE_PANEL",
+        message: `Scoring with ${validCount}/3 valid judgments (reserve exhausted or judge JSON failed)`,
+        taskResultId,
+        details: { validCount, expected: 3 },
+      });
     }
 
     const agg = aggregateTask(taskResultId);

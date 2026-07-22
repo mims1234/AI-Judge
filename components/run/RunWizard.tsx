@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { PickerModel } from "@/components/models/ModelPicker";
 import { StepBundle, type BundleOption } from "@/components/run/StepBundle";
@@ -22,6 +23,7 @@ import {
   saveRunDraft,
   type RunDraft,
 } from "@/lib/client/runDraft";
+import { DEFAULT_BUNDLE_SLUG } from "@/lib/bundles/defaults";
 import type { AppSettings } from "@/lib/settings";
 
 export type RunWizardProps = {
@@ -31,6 +33,14 @@ export type RunWizardProps = {
   settings: AppSettings;
   isDemo: boolean;
 };
+
+function defaultBundleId(bundles: BundleOption[]): string | null {
+  return (
+    bundles.find((b) => b.slug === DEFAULT_BUNDLE_SLUG)?.id ??
+    bundles[0]?.id ??
+    null
+  );
+}
 
 function parseStep(raw: string | null): WizardStep {
   const n = Number(raw);
@@ -59,7 +69,7 @@ export function RunWizard({
 
   const [draft, setDraft] = useState<RunDraft>(() =>
     defaultRunDraft({
-      bundleId: bundles[0]?.id ?? null,
+      bundleId: defaultBundleId(bundles),
       trials: settings.trials,
       candidateConcurrency: settings.candidateConcurrency,
       budgetUsd: settings.defaultBudgetUsd,
@@ -83,7 +93,7 @@ export function RunWizard({
       const bundleId =
         base.bundleId && bundles.some((b) => b.id === base.bundleId)
           ? base.bundleId
-          : (bundles[0]?.id ?? null);
+          : defaultBundleId(bundles);
       return {
         ...base,
         bundleId,
@@ -202,12 +212,20 @@ export function RunWizard({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-8 md:px-10">
-      <h1
-        className="font-display text-2xl uppercase tracking-[0.08em] text-bright"
-        data-testid="step-heading"
-      >
-        Configure run
-      </h1>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1
+          className="font-display text-2xl uppercase tracking-[0.08em] text-bright"
+          data-testid="step-heading"
+        >
+          Configure run
+        </h1>
+        <Link
+          href="/runs"
+          className="text-sm text-dim transition-colors hover:text-teal-300"
+        >
+          Past runs →
+        </Link>
+      </div>
 
       {isDemo && (
         <DemoBanner
