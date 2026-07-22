@@ -7,6 +7,7 @@ import {
   formatUsd,
   formatUsdRange,
 } from "@/lib/format";
+import { apiFetch } from "@/lib/client/apiKey";
 import type { RunDraft } from "@/lib/client/runDraft";
 import { OverlapWarning } from "@/components/run/OverlapWarning";
 import { Button } from "@/components/ui/Button";
@@ -49,7 +50,7 @@ export function StepReview({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/runs/preflight", {
+      const res = await apiFetch("/api/runs/preflight", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -62,13 +63,28 @@ export function StepReview({
           budget_usd: draft.budgetUsd,
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as {
+          error?: { code?: string; message?: string };
+        } | null;
+        if (body?.error?.code === "NEEDS_KEY") {
+          throw new Error(
+            body.error.message ??
+              "Add your OpenRouter API key in Settings to run preflight.",
+          );
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
       const data = (await res.json()) as PreflightOk;
       if (id !== reqId.current) return;
       setPreflight(data);
-    } catch {
+    } catch (err) {
       if (id !== reqId.current) return;
-      setError("Preflight failed — check the network and retry.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Preflight failed — check the network and retry.",
+      );
       setPreflight(null);
     } finally {
       if (id === reqId.current) setLoading(false);

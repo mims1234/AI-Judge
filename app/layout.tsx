@@ -3,6 +3,7 @@ import { Unica_One, Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/ui/AppShell";
 import { StatusAnnouncerProvider } from "@/components/ui/StatusAnnouncer";
+import { getKeyStatusInfo } from "@/lib/server/appSettings";
 
 const displayFont = Unica_One({
   weight: "400",
@@ -34,6 +35,8 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const keyStatus = getKeyStatusInfo();
+
   return (
     <html
       lang="en"
@@ -44,7 +47,7 @@ export default function RootLayout({
           Skip to content
         </a>
         <StatusAnnouncerProvider>
-          <AppShell />
+          <AppShell serverConfigured={keyStatus.serverConfigured} />
           <main id="main" className="relative z-[1] flex flex-1 flex-col">
             {children}
           </main>

@@ -1,4 +1,9 @@
-import { apiError, parseBody } from "@/lib/api-helpers";
+import {
+  apiError,
+  getKeyFromRequest,
+  needsKeyError,
+  parseBody,
+} from "@/lib/api-helpers";
 import { hasApiKey } from "@/lib/openrouter";
 import { PreflightRequestSchema } from "@/lib/schemas";
 import { evaluatePreflight } from "@/lib/scoring";
@@ -8,11 +13,10 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    if (!hasApiKey()) {
-      return apiError(
-        "NO_API_KEY",
-        503,
-        "OPENROUTER_API_KEY is not configured",
+    const userKey = getKeyFromRequest(request);
+    if (!hasApiKey(userKey)) {
+      return needsKeyError(
+        "Add your OpenRouter API key in Settings before running a preflight check.",
       );
     }
 
@@ -30,7 +34,7 @@ export async function POST(request: Request) {
 
     // Ensure catalog is warm enough for getCachedModel
     const { getModelCatalog } = await import("@/lib/openrouter");
-    await getModelCatalog();
+    await getModelCatalog({ apiKey: userKey });
 
     const result = evaluatePreflight(parsed.data);
     return Response.json({

@@ -95,6 +95,9 @@ export function demoLeaderboardRows(category?: Category): LeaderboardRow[] {
     spread_history: m.spreads,
     category_medians: { ...m.catMedians },
     category_detail: detailFor(m),
+    coverage: m.success,
+    penalized_tasks: m.id.includes("grok") ? 1 : 0,
+    excluded_tasks: 0,
   }));
 
   rows.sort((a, b) => {

@@ -5,6 +5,9 @@ import { MINI_V1 } from "@/lib/bundles/mini-v1";
 import {
   countWords,
   extractJson,
+  isCountableFinding,
+  isInformationalFinding,
+  isSkippedFinding,
   runValidators,
   type TaskSnapshot,
 } from "@/lib/validators/index";
@@ -168,5 +171,68 @@ describe("JSON extraction / word counts (plans/11 §1.3 common)", () => {
     expect(
       long.some((f) => f.validator === "roleplay_counts" && !f.passed),
     ).toBe(true);
+  });
+});
+
+describe("skipped / informational validator semantics", () => {
+  it("marks downstream checks skipped (not countable fails) when JSON is unparseable", () => {
+    const findings = runValidators("coding", "not json at all", taskFor("coding"));
+    const skipped = findings.filter(isSkippedFinding);
+    expect(skipped.length).toBeGreaterThan(0);
+    expect(skipped.every((f) => !isCountableFinding(f))).toBe(true);
+    expect(
+      findings.find((f) => f.validator === "json_parseable")?.passed,
+    ).toBe(false);
+    expect(
+      isCountableFinding(
+        findings.find((f) => f.validator === "json_parseable")!,
+      ),
+    ).toBe(true);
+  });
+
+  it("demotes no_extra_prose to informational for creative categories", () => {
+    const payload = {
+      response: "hi",
+      diagnostic_questions: ["a", "b", "c"],
+      triage_steps: ["1", "2", "3", "4", "5"],
+      likely_evidence_needed: "logs",
+    };
+    const findings = runValidators(
+      "roleplay",
+      `Sure — here you go:\n${JSON.stringify(payload)}`,
+      taskFor("roleplay"),
+    );
+    const prose = findings.find((f) => f.validator === "no_extra_prose")!;
+    expect(prose.passed).toBe(false);
+    expect(isInformationalFinding(prose)).toBe(true);
+    expect(isCountableFinding(prose)).toBe(false);
+    // Real checks still ran
+    expect(
+      findings.find((f) => f.validator === "roleplay_counts")?.passed,
+    ).toBe(true);
+  });
+
+  it("keeps no_extra_prose countable for coding", () => {
+    const findings = runValidators(
+      "coding",
+      `Here:\n${JSON.stringify({
+        code: "function createIdempotencyGuard() {}",
+        explanation: "x",
+        complexity: { time: "O(1)", space: "O(1)" },
+        tests: ["a", "b", "c", "d", "e"],
+      })}`,
+      taskFor("coding"),
+    );
+    const prose = findings.find((f) => f.validator === "no_extra_prose")!;
+    expect(prose.passed).toBe(false);
+    expect(isInformationalFinding(prose)).toBe(false);
+    expect(isCountableFinding(prose)).toBe(true);
+  });
+
+  it("extractJson tolerates unclosed fences via brace-slice", () => {
+    const body = JSON.stringify({ a: 1 });
+    const result = extractJson("```json\n" + body + "\n");
+    expect(result.ok).toBe(true);
+    expect(result.value).toEqual({ a: 1 });
   });
 });

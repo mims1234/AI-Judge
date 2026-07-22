@@ -13,6 +13,7 @@ import {
 } from "react";
 import { SseEventSchema, type RunSnapshot, type SseEvent } from "@/lib/schemas";
 import { useAnnounce } from "@/components/ui/StatusAnnouncer";
+import { apiFetch } from "@/lib/client/apiKey";
 import {
   applySseEvent,
   cloneStoreShallow,
@@ -401,9 +402,10 @@ export function RunStoreProvider({
     async (action: "pause" | "resume" | "cancel") => {
       setControlPending(action);
       try {
-        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/${action}`, {
-          method: "POST",
-        });
+        const res = await apiFetch(
+          `/api/runs/${encodeURIComponent(runId)}/${action}`,
+          { method: "POST" },
+        );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
       } catch (err) {
         announceRef.current(
@@ -461,7 +463,7 @@ export function RunStoreProvider({
         }
       }
       try {
-        const res = await fetch(
+        const res = await apiFetch(
           `/api/runs/${encodeURIComponent(runId)}/tasks/${encodeURIComponent(taskResultId)}/retry`,
           { method: "POST" },
         );

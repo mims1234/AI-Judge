@@ -6,7 +6,11 @@ import type { PickerModel } from "@/components/models/ModelPicker";
 import { buttonClasses } from "@/components/ui/Button";
 import { DemoBanner } from "@/components/ui/DemoBanner";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { getModelCatalog } from "@/lib/openrouter";
+import {
+  getCachedCatalog,
+  getModelCatalog,
+  hasServerKey,
+} from "@/lib/openrouter";
 import { buildDemoCatalog, DEMO_CATALOG_FETCHED_AT } from "@/lib/mocks/catalog";
 import { getModelExtras } from "@/lib/server/catalog";
 
@@ -40,9 +44,13 @@ export default async function ModelsPage({ searchParams }: { searchParams: Searc
   const { model: selectedId, demo } = await searchParams;
   const isDemo = demo === "1";
 
+  // RSC can't see the browser BYOK key — use live fetch only when a server
+  // (dev) key exists; otherwise serve the SQLite cache.
   const catalog = isDemo
     ? { source: "demo" as const, fetched_at: DEMO_CATALOG_FETCHED_AT, models: buildDemoCatalog() }
-    : await getModelCatalog().catch(() => null);
+    : hasServerKey()
+      ? await getModelCatalog().catch(() => getCachedCatalog())
+      : getCachedCatalog();
 
   if (!catalog) {
     return (
@@ -51,14 +59,14 @@ export default async function ModelsPage({ searchParams }: { searchParams: Searc
         <EmptyState
           className="mt-6 flex-1"
           title="Could not load the model catalog."
-          body="Check OPENROUTER_API_KEY in Settings, then retry."
+          body="Add your OpenRouter API key in Settings, then refresh the catalog."
           action={
             <div className="flex gap-2">
-              <Link href="/models" className={buttonClasses({ variant: "primary" })}>
-                Retry
-              </Link>
-              <Link href="/settings" className={buttonClasses({ variant: "secondary" })}>
+              <Link href="/settings" className={buttonClasses({ variant: "primary" })}>
                 Open settings
+              </Link>
+              <Link href="/models" className={buttonClasses({ variant: "secondary" })}>
+                Retry
               </Link>
             </div>
           }

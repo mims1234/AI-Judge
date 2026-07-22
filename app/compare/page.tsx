@@ -107,6 +107,9 @@ export default async function ComparePage({
       spread_history: [],
       category_medians: Object.fromEntries(CATEGORY_ORDER.map((c) => [c, 0])),
       category_detail: {},
+      coverage: 0,
+      penalized_tasks: 0,
+      excluded_tasks: 0,
     };
   });
 

@@ -13,7 +13,15 @@ import { validateMathGroundTruth } from "@/lib/validators/math";
 
 export type { TaskSnapshot, ValidatorFinding } from "@/lib/validators/common";
 export { computeMathGroundTruth } from "@/lib/validators/math";
-export { countWords, extractJson } from "@/lib/validators/common";
+export {
+  countWords,
+  extractJson,
+  hydrateValidatorFinding,
+  isCountableFinding,
+  isInformationalFinding,
+  isSkippedFinding,
+  CREATIVE_CATEGORIES,
+} from "@/lib/validators/common";
 
 export function runValidators(
   category: Category | string,

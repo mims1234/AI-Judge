@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 import { Workbench } from "@/components/arena/Workbench";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { buildCellHref, parseCellParam } from "@/lib/cellRef";
 import { getRunSnapshot } from "@/lib/server/runSnapshot";
 
 export const dynamic = "force-dynamic";
 
 type Params = Promise<{ id: string }>;
+type SearchParams = Promise<{ cell?: string; view?: string }>;
 
 export async function generateMetadata({
   params,
@@ -31,8 +33,23 @@ function WorkbenchFallback() {
   );
 }
 
-export default async function RunWorkbenchPage({ params }: { params: Params }) {
+export default async function RunWorkbenchPage({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: SearchParams;
+}) {
   const { id } = await params;
+  const sp = await searchParams;
+
+  // Back-compat: legacy drawer links (?cell=<cand>:<cat>[:<trial>]) redirect to
+  // the dedicated cell page (plans/15 §A1).
+  const legacy = parseCellParam(sp.cell ?? null);
+  if (legacy.candidate && legacy.category) {
+    redirect(buildCellHref(id, legacy.candidate, legacy.category, legacy.trial));
+  }
+
   const snapshot = getRunSnapshot(id);
 
   if (!snapshot) {

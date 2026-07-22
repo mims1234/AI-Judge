@@ -4,6 +4,9 @@ import {
   judgeMetaScore,
   mean,
   median,
+  panelConfidenceAdjusted,
+  parseCategoryScoresJson,
+  renderValidatorBlock,
 } from "@/lib/scoring";
 
 describe("median / mean / computedOverall (plans/11 §1.2)", () => {
@@ -66,6 +69,82 @@ describe("median / mean / computedOverall (plans/11 §1.2)", () => {
     const provisional = (n: number) => n < 3;
     expect(provisional(2)).toBe(true);
     expect(provisional(3)).toBe(false);
+  });
+});
+
+describe("panelConfidenceAdjusted", () => {
+  it("leaves a full 3-judge panel unchanged", () => {
+    expect(panelConfidenceAdjusted(10, 3)).toBe(10);
+    expect(panelConfidenceAdjusted(2, 3)).toBe(2);
+  });
+
+  it("shrinks high solo / dual scores toward 5", () => {
+    expect(panelConfidenceAdjusted(10, 1)).toBeCloseTo(20 / 3, 5); // 6.666…
+    expect(panelConfidenceAdjusted(10, 2)).toBeCloseTo(25 / 3, 5); // 8.333…
+  });
+
+  it("is symmetric for low scores (pulled up toward 5)", () => {
+    expect(panelConfidenceAdjusted(0, 1)).toBeCloseTo(10 / 3, 5); // 3.333…
+    expect(panelConfidenceAdjusted(0, 2)).toBeCloseTo(5 / 3, 5); // 1.666…
+  });
+});
+
+describe("parseCategoryScoresJson (legacy + envelope)", () => {
+  it("reads legacy flat maps", () => {
+    const p = parseCategoryScoresJson(JSON.stringify({ math: 8, coding: 7 }));
+    expect(p.scores.math).toBe(8);
+    expect(p.meta.coverage).toBe(1);
+  });
+
+  it("reads the new scores/meta envelope", () => {
+    const p = parseCategoryScoresJson(
+      JSON.stringify({
+        scores: { math: 9 },
+        meta: {
+          coverage: 0.5,
+          penalized_count: 2,
+          excluded_count: 1,
+          partial_panel_count: 3,
+        },
+      }),
+    );
+    expect(p.scores.math).toBe(9);
+    expect(p.meta.penalized_count).toBe(2);
+    expect(p.meta.excluded_count).toBe(1);
+  });
+});
+
+describe("renderValidatorBlock skipped / note semantics", () => {
+  it("renders SKIPPED and NOTE marks and tells judges to ignore skipped", () => {
+    const block = renderValidatorBlock([
+      {
+        validator: "json_parseable",
+        passed: false,
+        expected_json: null,
+        actual_json: null,
+        details: "output is not a single valid JSON document",
+      },
+      {
+        validator: "required_keys",
+        passed: false,
+        expected_json: null,
+        actual_json: null,
+        details: "skipped: unparseable JSON",
+        skipped: true,
+      },
+      {
+        validator: "no_extra_prose",
+        passed: false,
+        expected_json: null,
+        actual_json: null,
+        details: "note: prose found outside the JSON document",
+        informational: true,
+      },
+    ]);
+    expect(block).toContain("[FAIL] json_parseable");
+    expect(block).toContain("[SKIPPED — not evaluated] required_keys");
+    expect(block).toContain("[NOTE] no_extra_prose");
+    expect(block).toContain("IGNORE [SKIPPED]");
   });
 });
 

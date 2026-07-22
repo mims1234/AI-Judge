@@ -47,6 +47,7 @@ export type RunStatus = z.infer<typeof RunStatusSchema>;
 export const VerdictSchema = z.enum(["pass", "partial_pass", "fail"]);
 export type Verdict = z.infer<typeof VerdictSchema>;
 export const ParseStatusSchema = z.enum(["first_try", "repaired", "invalid"]);
+export type ParseStatus = z.infer<typeof ParseStatusSchema>;
 
 const Score0to10 = z.coerce.number().min(0).max(10);
 
@@ -255,6 +256,15 @@ const ScoresObjectSchema = z.object({
   honesty: z.number(),
 });
 
+/** Static bundle task content surfaced for the cell detail page (plans/15 §A2). */
+export const SnapshotTaskSchema = z.object({
+  id: z.string(),
+  category: CategorySchema,
+  task_body: z.string(),
+  token_limit: z.number(),
+});
+export type SnapshotTask = z.infer<typeof SnapshotTaskSchema>;
+
 export const RunSnapshotSchema = z.object({
   run: z.object({
     id: z.string(),
@@ -289,6 +299,7 @@ export const RunSnapshotSchema = z.object({
       status: TaskResultStatusSchema,
       raw_output: z.string().nullable(),
       finish_reason: z.string().nullable(),
+      request_hash: z.string().nullable(),
       tokens: z
         .object({ prompt: z.number(), completion: z.number() })
         .nullable(),
@@ -337,6 +348,7 @@ export const RunSnapshotSchema = z.object({
     }),
   ),
   bundle_run_score: z.number().nullable(),
+  tasks: z.array(SnapshotTaskSchema),
 });
 export type RunSnapshot = z.infer<typeof RunSnapshotSchema>;
 
@@ -383,6 +395,9 @@ export const LeaderboardResponseSchema = z.object({
           validator_pass_rate: z.number(),
         }),
       ),
+      coverage: z.number(),
+      penalized_tasks: z.number(),
+      excluded_tasks: z.number(),
     }),
   ),
 });
@@ -390,6 +405,326 @@ export const LeaderboardResponseSchema = z.object({
 export const ExportQuerySchema = z.object({
   format: z.enum(["json", "csv"]).default("json"),
 });
+
+/* ---------- Chat playground (plans/16) ---------- */
+
+/** Chat categories: the 8 benchmark categories + free-form "general". */
+export const CHAT_CATEGORY_ORDER = [...CATEGORY_ORDER, "general"] as const;
+export const ChatCategorySchema = z.enum(CHAT_CATEGORY_ORDER);
+export type ChatCategory = z.infer<typeof ChatCategorySchema>;
+
+/** Judge classification output for free chat (step 1 of chat judging). */
+export const ChatClassificationSchema = z.object({
+  category: ChatCategorySchema,
+  confidence: z.coerce.number().min(0).max(1),
+  rationale: z.string(),
+});
+export type ChatClassification = z.infer<typeof ChatClassificationSchema>;
+
+/** Hand-written JSON Schema for the classification structured-output call. */
+export const chatClassificationJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["category", "confidence", "rationale"],
+  properties: {
+    category: { type: "string", enum: [...CHAT_CATEGORY_ORDER] },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    rationale: { type: "string" },
+  },
+} as const;
+
+/** Chat guardrails (plans/16 §B4). */
+export const CHAT_LIMITS = {
+  MAX_USER_TURNS: 20,
+  MAX_MESSAGE_CHARS: 8_000,
+  MAX_TRANSCRIPT_CHARS: 32_000,
+  MIN_JUDGES: 3,
+  MAX_JUDGES: 5,
+  ASSISTANT_MAX_TOKENS: 2048,
+  CLASSIFY_MAX_TOKENS: 512,
+  JUDGE_MAX_TOKENS: 1536,
+} as const;
+
+export const ChatSessionStatusSchema = z.enum([
+  "active",
+  "streaming",
+  "judging",
+  "judged",
+  "error",
+]);
+export type ChatSessionStatus = z.infer<typeof ChatSessionStatusSchema>;
+
+export const CreateChatSessionRequestSchema = z
+  .object({
+    candidate_model_id: z.string().min(1),
+    judge_pool_model_ids: z
+      .array(z.string().min(1))
+      .min(CHAT_LIMITS.MIN_JUDGES)
+      .max(CHAT_LIMITS.MAX_JUDGES)
+      .refine((arr) => new Set(arr).size === arr.length, {
+        message: "must be unique",
+      }),
+  })
+  .refine(
+    (v) => !v.judge_pool_model_ids.includes(v.candidate_model_id),
+    {
+      message: "candidate must not also be a judge (self-judging)",
+      path: ["judge_pool_model_ids"],
+    },
+  );
+export type CreateChatSessionRequest = z.infer<
+  typeof CreateChatSessionRequestSchema
+>;
+
+export const PostChatMessageRequestSchema = z.object({
+  content: z.string().min(1).max(CHAT_LIMITS.MAX_MESSAGE_CHARS),
+});
+export type PostChatMessageRequest = z.infer<typeof PostChatMessageRequestSchema>;
+
+/** GET /api/chat/sessions/[id] snapshot. */
+export const ChatSessionSnapshotSchema = z.object({
+  session: z.object({
+    id: z.string(),
+    candidate_model_id: z.string(),
+    judge_pool: z.array(z.string()),
+    status: ChatSessionStatusSchema,
+    category: ChatCategorySchema.nullable(),
+    median_score: z.number().nullable(),
+    disagreement: z.number().nullable(),
+    judging_rounds: z.number(),
+    total_cost_usd: z.number(),
+    error: z
+      .object({
+        kind: z.enum(["infra_failure", "judging_failure"]),
+        message: z.string(),
+      })
+      .nullable(),
+    created_at: z.string(),
+    finished_at: z.string().nullable(),
+    last_event_id: z.number(),
+  }),
+  messages: z.array(
+    z.object({
+      id: z.string(),
+      role: z.enum(["user", "assistant"]),
+      content: z.string(),
+      tokens: z
+        .object({ prompt: z.number(), completion: z.number() })
+        .nullable(),
+      cost_usd: z.number().nullable(),
+      latency_ms: z.number().nullable(),
+      created_at: z.string(),
+    }),
+  ),
+  judgments: z.array(
+    z.object({
+      judge_model_id: z.string(),
+      round: z.number(),
+      predicted_category: ChatCategorySchema.nullable(),
+      category_confidence: z.number().nullable(),
+      category_rationale: z.string().nullable(),
+      parse_status: ParseStatusSchema,
+      scores: ScoresObjectSchema.nullable(),
+      claimed_overall: z.number().nullable(),
+      server_overall: z.number().nullable(),
+      verdict: VerdictSchema.nullable(),
+      feedback: z
+        .object({
+          what_was_good: z.array(z.string()),
+          what_was_terrible: z.array(z.string()),
+          what_was_missing: z.array(z.string()),
+          constraint_violations: z.array(z.string()),
+          critical_errors: z.array(z.string()),
+          specific_evidence: z.array(z.string()),
+          one_best_improvement: z.string(),
+        })
+        .nullable(),
+      cost_usd: z.number().nullable(),
+      latency_ms: z.number().nullable(),
+    }),
+  ),
+});
+export type ChatSessionSnapshot = z.infer<typeof ChatSessionSnapshotSchema>;
+
+export const ChatLeaderboardQuerySchema = z.object({
+  category: ChatCategorySchema.optional(),
+});
+export type ChatLeaderboardQuery = z.infer<typeof ChatLeaderboardQuerySchema>;
+
+/* ---------- Chat SSE events (discriminated union on event name) ---------- */
+
+const SessionIdField = z.object({ sessionId: z.string() });
+
+export const SseChatSessionStatusSchema = z.object({
+  event: z.literal("chat.session.status"),
+  data: SessionIdField.extend({
+    status: ChatSessionStatusSchema,
+    totalCostUsd: z.number(),
+  }),
+});
+
+export const SseChatMessageUserSchema = z.object({
+  event: z.literal("chat.message.user"),
+  data: SessionIdField.extend({
+    messageId: z.string(),
+    content: z.string(),
+  }),
+});
+
+export const SseChatMessageDeltaSchema = z.object({
+  event: z.literal("chat.message.delta"),
+  data: SessionIdField.extend({
+    messageId: z.string(),
+    delta: z.string(),
+    tokens: z.number().optional(),
+  }),
+});
+
+export const SseChatMessageCompleteSchema = z.object({
+  event: z.literal("chat.message.complete"),
+  data: SessionIdField.extend({
+    messageId: z.string(),
+    finishReason: z.string(),
+    tokens: z.object({ prompt: z.number(), completion: z.number() }),
+    costUsd: z.number(),
+    latencyMs: z.number(),
+  }),
+});
+
+export const SseChatJudgeStartedSchema = z.object({
+  event: z.literal("chat.judge.started"),
+  data: SessionIdField.extend({
+    judgeModelId: z.string(),
+    round: z.number(),
+    phase: z.enum(["classify", "score"]),
+  }),
+});
+
+export const SseChatJudgeDeltaSchema = z.object({
+  event: z.literal("chat.judge.delta"),
+  data: SessionIdField.extend({
+    judgeModelId: z.string(),
+    phase: z.enum(["classify", "score"]),
+    delta: z.string(),
+  }),
+});
+
+export const SseChatJudgeClassifiedSchema = z.object({
+  event: z.literal("chat.judge.classified"),
+  data: SessionIdField.extend({
+    judgeModelId: z.string(),
+    category: ChatCategorySchema,
+    confidence: z.number(),
+    rationale: z.string(),
+  }),
+});
+
+export const SseChatCategoryDecidedSchema = z.object({
+  event: z.literal("chat.category.decided"),
+  data: SessionIdField.extend({
+    category: ChatCategorySchema,
+    votes: z.array(
+      z.object({
+        judgeModelId: z.string(),
+        category: ChatCategorySchema,
+        confidence: z.number(),
+      }),
+    ),
+    locked: z.boolean(),
+  }),
+});
+
+export const SseChatJudgeCompleteSchema = z.object({
+  event: z.literal("chat.judge.complete"),
+  data: SessionIdField.extend({
+    judgeModelId: z.string(),
+    round: z.number(),
+    parseStatus: ParseStatusSchema,
+    verdict: VerdictSchema.optional(),
+    scores: ScoresObjectSchema.optional(),
+    claimedOverall: z.number().optional(),
+    serverOverall: z.number().optional(),
+    feedback: z
+      .object({
+        whatWasGood: z.array(z.string()),
+        whatWasTerrible: z.array(z.string()),
+        whatWasMissing: z.array(z.string()),
+        constraintViolations: z.array(z.string()),
+        criticalErrors: z.array(z.string()),
+        specificEvidence: z.array(z.string()),
+        oneBestImprovement: z.string(),
+      })
+      .optional(),
+    costUsd: z.number(),
+    latencyMs: z.number(),
+  }),
+});
+
+export const SseChatScoredSchema = z.object({
+  event: z.literal("chat.scored"),
+  data: SessionIdField.extend({
+    category: ChatCategorySchema,
+    round: z.number(),
+    /** Panel-confidence-adjusted median (stored on the session). */
+    median: z.number(),
+    disagreement: z.number(),
+    flagged: z.boolean(),
+    judgeOveralls: z.array(z.number()),
+    /** Raw median before panel-confidence shrinkage (optional for older clients). */
+    rawMedian: z.number().optional(),
+    validJudges: z.number().optional(),
+    expectedJudges: z.number().optional(),
+  }),
+});
+
+export const SseChatCostSchema = z.object({
+  event: z.literal("chat.cost"),
+  data: SessionIdField.extend({
+    totalCostUsd: z.number(),
+  }),
+});
+
+export const SseChatErrorSchema = z.object({
+  event: z.literal("chat.error"),
+  data: SessionIdField.extend({
+    scope: z.enum(["message", "judging", "session"]),
+    code: z.string(),
+    message: z.string(),
+    /** Present for judging/session failures that mirror bundle task error kinds. */
+    kind: z.enum(["infra_failure", "judging_failure"]).optional(),
+    /** True when a prior median was kept after a judging_failure re-round. */
+    retainedScore: z.boolean().optional(),
+  }),
+});
+
+export const SseChatHeartbeatSchema = z.object({
+  event: z.literal("heartbeat"),
+  data: SessionIdField.extend({ ts: z.number() }),
+});
+
+export const ChatSseEventSchema = z.discriminatedUnion("event", [
+  SseChatSessionStatusSchema,
+  SseChatMessageUserSchema,
+  SseChatMessageDeltaSchema,
+  SseChatMessageCompleteSchema,
+  SseChatJudgeStartedSchema,
+  SseChatJudgeDeltaSchema,
+  SseChatJudgeClassifiedSchema,
+  SseChatCategoryDecidedSchema,
+  SseChatJudgeCompleteSchema,
+  SseChatScoredSchema,
+  SseChatCostSchema,
+  SseChatErrorSchema,
+  SseChatHeartbeatSchema,
+]);
+export type ChatSseEvent = z.infer<typeof ChatSseEventSchema>;
+
+/** Chat event types that are never persisted to chat_events. */
+export const EPHEMERAL_CHAT_SSE_EVENTS = new Set([
+  "chat.message.delta",
+  "chat.judge.delta",
+  "heartbeat",
+]);
 
 /* ---------- SSE event schemas (discriminated union on event name) ---------- */
 
@@ -458,6 +793,8 @@ export const SseValidationCompleteSchema = z.object({
         expected: z.string().optional(),
         actual: z.string().optional(),
         details: z.string(),
+        skipped: z.boolean().optional(),
+        informational: z.boolean().optional(),
       }),
     ),
     allPassed: z.boolean(),

@@ -1,5 +1,9 @@
 "use client";
 
+import { animate } from "animejs";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { cn } from "@/lib/cn";
 import { formatScore, formatTokens, scoreBand } from "@/lib/format";
 import type { Category, TaskResultStatus } from "@/lib/schemas";
@@ -14,7 +18,7 @@ export type ArenaCellProps = {
   category: Category;
   runTerminal: boolean;
   focused: boolean;
-  onSelect: () => void;
+  href: string;
   onFocus: () => void;
   tabIndex: number;
 };
@@ -41,17 +45,21 @@ function statusOf(cell: CellState | undefined): TaskResultStatus | "empty" {
   return statuses[0] ?? "pending";
 }
 
-/** Single arena matrix cell (plans/09 §2.3). */
+/** Single arena matrix cell — a real link to the cell detail page (plans/15 §A1). */
 export function ArenaCell({
   cell,
   candidateModelId,
   category,
   runTerminal,
   focused,
-  onSelect,
+  href,
   onFocus,
   tabIndex,
 }: ArenaCellProps) {
+  const router = useRouter();
+  const ref = useRef<HTMLAnchorElement>(null);
+  const navTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navigatedRef = useRef(false);
   const trial = pickTrial(cell);
   const status = statusOf(cell);
   const tokens = useCellTokenTick(status === "streaming" ? (trial?.taskResultId ?? null) : null);
@@ -71,18 +79,61 @@ export function ArenaCell({
   } else if (status === "error") aria += "error";
   else aria += status;
 
+  useEffect(() => {
+    return () => {
+      if (navTimerRef.current != null) clearTimeout(navTimerRef.current);
+    };
+  }, []);
+
+  // Exit micro-animation on plain clicks; modifier clicks keep native link behavior.
+  const onClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || !ref.current) return; // native navigation
+    e.preventDefault();
+    navigatedRef.current = false;
+    if (navTimerRef.current != null) clearTimeout(navTimerRef.current);
+
+    const go = () => {
+      if (navigatedRef.current) return;
+      navigatedRef.current = true;
+      if (navTimerRef.current != null) {
+        clearTimeout(navTimerRef.current);
+        navTimerRef.current = null;
+      }
+      router.push(href);
+    };
+
+    const el = ref.current;
+    const anim = animate(el, {
+      scale: [1, 0.9],
+      opacity: [1, 0.5],
+      duration: 140,
+      ease: "out(2)",
+      onComplete: go,
+    });
+    // Safety net: never trap the user if onComplete is swallowed.
+    navTimerRef.current = setTimeout(() => {
+      anim.pause();
+      go();
+    }, 300);
+  };
+
   return (
-    <div
+    <Link
+      ref={ref}
+      href={href}
       role="gridcell"
       tabIndex={tabIndex}
       data-testid={`cell-${candidateModelId}-${category}`}
       aria-label={aria}
       onFocus={onFocus}
-      onClick={onSelect}
+      onClick={onClick}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+        // Links activate on Enter natively; mirror the old grid's Space behavior.
+        if (e.key === " ") {
           e.preventDefault();
-          onSelect();
+          e.currentTarget.click();
         }
       }}
       className={cn(
@@ -166,6 +217,6 @@ export function ArenaCell({
       {status === "error" && !unfinishedTerminal && (
         <span className="font-mono text-sm text-fail-400">✕</span>
       )}
-    </div>
+    </Link>
   );
 }

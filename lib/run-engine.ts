@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { getDb, prepare } from "@/lib/db";
 import {
   OpenRouterError,
+  resolveApiKey,
   streamChat,
   type StreamChatResult,
 } from "@/lib/openrouter";
@@ -21,7 +22,11 @@ import {
   finalizeRun,
   renderValidatorBlock,
 } from "@/lib/scoring";
-import { runValidators, type TaskSnapshot } from "@/lib/validators";
+import {
+  isCountableFinding,
+  runValidators,
+  type TaskSnapshot,
+} from "@/lib/validators";
 
 export class InvalidStateError extends Error {
   constructor(message: string) {
@@ -127,7 +132,10 @@ type EngineEvent = {
 };
 
 export interface RunEngine {
-  enqueue(runId: string): void;
+  /** Queue a run. Optional apiKey is held in-memory for the run lifetime (never SQLite). */
+  enqueue(runId: string, apiKey?: string | null): void;
+  /** Bind/replace the in-memory OpenRouter key for a run (resume / retry / idempotent relaunch). */
+  bindApiKey(runId: string, apiKey?: string | null): void;
   pause(runId: string): void;
   resume(runId: string): void;
   cancel(runId: string): void;
@@ -145,10 +153,23 @@ class RunEngineImpl implements RunEngine {
   private workerBusy = false;
   private controls = new Map<string, ControlBlock>();
   private emitters = new Map<string, EventEmitter>();
+  /** In-memory BYOK keys — never persisted to SQLite. */
+  private runKeys = new Map<string, string>();
   private recovered = false;
 
   constructor() {
     this.recover();
+  }
+
+  bindApiKey(runId: string, apiKey?: string | null): void {
+    if (apiKey && apiKey.trim()) {
+      this.runKeys.set(runId, apiKey.trim());
+    }
+  }
+
+  /** Resolve key for a run: bound user key, else non-prod env fallback. */
+  private resolveRunKey(runId: string): string | null {
+    return resolveApiKey(this.runKeys.get(runId) ?? null);
   }
 
   private ensureControl(runId: string): ControlBlock {
@@ -303,7 +324,8 @@ class RunEngineImpl implements RunEngine {
     }
   }
 
-  enqueue(runId: string): void {
+  enqueue(runId: string, apiKey?: string | null): void {
+    this.bindApiKey(runId, apiKey);
     if (!this.queue.includes(runId) && this.activeRunId !== runId) {
       this.queue.push(runId);
     }
@@ -553,6 +575,8 @@ class RunEngineImpl implements RunEngine {
       bundleRunScore: status === "completed" ? finalized.bundleRunScore : null,
       totalCostUsd: run.total_cost_usd,
     });
+    // Drop in-memory key once the run is terminal.
+    this.runKeys.delete(runId);
   }
 
   private async waitIfPaused(runId: string): Promise<void> {
@@ -603,6 +627,24 @@ class RunEngineImpl implements RunEngine {
       run.status === "incomplete"
     ) {
       // retry path may have flipped to running already
+    }
+
+    // After a server restart the in-memory key map is empty. In production
+    // there is no env fallback — fail clearly so the operator re-runs.
+    if (!this.resolveRunKey(runId)) {
+      if (run.status === "queued" || run.status === "running") {
+        this.setRunStatus(runId, "running");
+        this.emitRunStatus(runId, "running");
+      }
+      this.emitEvent(runId, "notice", {
+        runId,
+        scope: "run",
+        code: "NEEDS_KEY",
+        message:
+          "API key is no longer available (server restart or missing key). Re-run from the wizard with your OpenRouter key.",
+      });
+      this.finishTerminal(runId, "incomplete");
+      return;
     }
 
     if (run.status === "queued" || run.status === "running") {
@@ -945,6 +987,7 @@ class RunEngineImpl implements RunEngine {
         maxTokens: taskMeta.token_limit,
         signal: ctrl.abortController.signal,
         deadlineMs: 600_000,
+        apiKey: this.resolveRunKey(runId),
         onDelta: (d) => {
           pendingDelta += d;
           tokenEst = Math.ceil((tokenEst * 4 + d.length) / 4);
@@ -1046,6 +1089,15 @@ class RunEngineImpl implements RunEngine {
         kind: "infra_failure",
         message,
       });
+      this.emitEvent(runId, "notice", {
+        runId,
+        scope: "task",
+        code: "INFRA_PENALTY",
+        message:
+          "Task scored 0 (model failed to answer) — retry to replace the penalty.",
+        taskResultId,
+        details: { kind: "infra_failure", attempts },
+      });
     }
   }
 
@@ -1091,6 +1143,7 @@ class RunEngineImpl implements RunEngine {
       ).run(taskResultId);
     })();
 
+    const countable = findings.filter((f) => isCountableFinding(f));
     this.emitEvent(runId, "validation.complete", {
       runId,
       taskResultId,
@@ -1100,8 +1153,12 @@ class RunEngineImpl implements RunEngine {
         expected: f.expected_json ?? undefined,
         actual: f.actual_json ?? undefined,
         details: f.details,
+        skipped: f.skipped === true || f.details.startsWith("skipped:"),
+        informational:
+          f.informational === true || f.details.startsWith("note:"),
       })),
-      allPassed: findings.every((f) => f.passed),
+      allPassed:
+        countable.length === 0 ? true : countable.every((f) => f.passed),
     });
   }
 
@@ -1239,6 +1296,15 @@ class RunEngineImpl implements RunEngine {
         kind: "judging_failure",
         message: "no reserve available for self-judging substitution",
       });
+      this.emitEvent(runId, "notice", {
+        runId,
+        scope: "task",
+        code: "JUDGING_EXCLUDED",
+        message:
+          "Task excluded from scoring (judge panel failed) — does not penalize the model.",
+        taskResultId,
+        details: { kind: "judging_failure", reason: "self_judge_no_reserve" },
+      });
       return;
     }
 
@@ -1332,6 +1398,7 @@ class RunEngineImpl implements RunEngine {
             signal: ctrl.abortController.signal,
             allowRetryAfterPartial: true,
             deadlineMs: 240_000,
+            apiKey: this.resolveRunKey(runId),
             onDelta: (d) => {
               pending += d;
               flush();
@@ -1715,6 +1782,15 @@ class RunEngineImpl implements RunEngine {
       this.emitTaskStatus(runId, taskResultId, "error", {
         kind: "judging_failure",
         message: "judge panel failed to produce any valid judgments",
+      });
+      this.emitEvent(runId, "notice", {
+        runId,
+        scope: "task",
+        code: "JUDGING_EXCLUDED",
+        message:
+          "Task excluded from scoring (judge panel failed) — does not penalize the model.",
+        taskResultId,
+        details: { kind: "judging_failure", reason: "no_valid_judgments" },
       });
       return;
     }

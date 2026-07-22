@@ -37,13 +37,24 @@ function startMock() {
     }
 
     if (req.method === "POST" && url.includes("/chat/completions")) {
+      // Chat playground: classification (step 1) vs rubric scoring (step 2) vs
+      // the plain candidate reply. Match classify first — its prompt also
+      // contains "judge"-ish words.
+      const isChatClassify =
+        body.includes("classifying a conversation") ||
+        body.includes('"name":"chat_classification"');
       const isJudge =
-        body.includes("independent benchmark judge") ||
-        body.includes('"name":"judgment"') ||
-        body.toLowerCase().includes("judge");
-      const fixture = isJudge
-        ? "sse/judge-stream-happy.sse"
-        : "sse/candidate-stream-happy.sse";
+        !isChatClassify &&
+        (body.includes("independent benchmark judge") ||
+          body.includes("independent conversation judge") ||
+          body.includes('"name":"judgment"') ||
+          body.includes('"name":"judge_output"') ||
+          body.toLowerCase().includes("judge"));
+      const fixture = isChatClassify
+        ? "sse/chat-classify-coding.sse"
+        : isJudge
+          ? "sse/judge-stream-happy.sse"
+          : "sse/candidate-stream-happy.sse";
       const buf = readFixture(fixture);
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -98,6 +109,10 @@ async function main() {
     OPENROUTER_BASE_URL: `http://127.0.0.1:${mockPort}/api/v1`,
     DATABASE_PATH: dbPath.replace(/\\/g, "/"),
     PORT: String(nextPort),
+    // Force dev BYOK policy so the env key is a valid server-side fallback,
+    // regardless of any AI_JUDGE_MODE=prod in a developer's .env.local.
+    // Pre-setting it means @next/env will not override it from .env.local.
+    AI_JUDGE_MODE: "dev",
   };
 
   const nextBin = path.join(

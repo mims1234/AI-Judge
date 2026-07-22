@@ -168,13 +168,16 @@ export function getModelRunStats(bundleSlug: string, modelId: string): ModelRunS
   const complete = prepare(
     `SELECT brs.overall_score AS s FROM bundle_run_scores brs
      JOIN runs r ON r.id = brs.run_id
-     WHERE brs.bundle_id = ? AND brs.candidate_model_id = ? AND brs.complete = 1
-       AND brs.overall_score IS NOT NULL
+     WHERE brs.bundle_id = ? AND brs.candidate_model_id = ?
+       AND brs.overall_score IS NOT NULL AND r.status != 'cancelled'
      ORDER BY r.created_at ASC`,
   ).all(bundle.id, modelId) as Array<{ s: number }>;
   const incomplete = prepare(
-    `SELECT COUNT(*) AS n FROM bundle_run_scores
-     WHERE bundle_id = ? AND candidate_model_id = ? AND complete = 0`,
+    `SELECT COUNT(*) AS n FROM bundle_run_scores brs
+     JOIN runs r ON r.id = brs.run_id
+     WHERE brs.bundle_id = ? AND brs.candidate_model_id = ?
+       AND (brs.overall_score IS NULL OR brs.complete = 0)
+       AND r.status != 'cancelled'`,
   ).get(bundle.id, modelId) as { n: number };
 
   const scores = complete.map((r) => r.s);
@@ -189,13 +192,15 @@ export function getModelRunStats(bundleSlug: string, modelId: string): ModelRunS
   };
 }
 
-/** Model ids that have ≥1 complete run in the bundle (compare picker filter). */
+/** Model ids that have ≥1 scored run in the bundle (compare picker filter). */
 export function getModelsWithCompleteRuns(bundleSlug: string): string[] {
   const bundle = getBundleBySlugOrId(bundleSlug);
   if (!bundle) return [];
   const rows = prepare(
-    `SELECT DISTINCT candidate_model_id AS m FROM bundle_run_scores
-     WHERE bundle_id = ? AND complete = 1`,
+    `SELECT DISTINCT brs.candidate_model_id AS m FROM bundle_run_scores brs
+     JOIN runs r ON r.id = brs.run_id
+     WHERE brs.bundle_id = ? AND brs.overall_score IS NOT NULL
+       AND r.status != 'cancelled'`,
   ).all(bundle.id) as Array<{ m: string }>;
   return rows.map((r) => r.m);
 }
@@ -227,7 +232,8 @@ export function getSameTaskAnswers(
     const latestRun = prepare(
       `SELECT brs.run_id AS run_id, r.created_at AS at FROM bundle_run_scores brs
        JOIN runs r ON r.id = brs.run_id
-       WHERE brs.bundle_id = ? AND brs.candidate_model_id = ? AND brs.complete = 1
+       WHERE brs.bundle_id = ? AND brs.candidate_model_id = ?
+         AND brs.overall_score IS NOT NULL AND r.status != 'cancelled'
        ORDER BY r.created_at DESC LIMIT 1`,
     ).get(bundle.id, modelId) as { run_id: string; at: number } | undefined;
     if (!latestRun) return empty;
@@ -261,10 +267,18 @@ export function getSameTaskAnswers(
               : best,
           );
 
-    const validatorCounts = prepare(
-      `SELECT SUM(passed) AS passed, COUNT(*) AS total FROM validator_results
-       WHERE task_result_id = ?`,
-    ).get(picked.id) as { passed: number | null; total: number };
+    // Exclude skipped/note findings from pass-rate (fair-scoring semantics).
+    const validatorRows = prepare(
+      `SELECT passed, details FROM validator_results WHERE task_result_id = ?`,
+    ).all(picked.id) as Array<{ passed: number; details: string }>;
+    const countableValidators = validatorRows.filter((v) => {
+      const d = v.details ?? "";
+      return !d.startsWith("skipped:") && !d.startsWith("note:");
+    });
+    const validatorCounts = {
+      passed: countableValidators.filter((v) => v.passed === 1).length,
+      total: countableValidators.length,
+    };
 
     const judgmentRows = prepare(
       `SELECT parsed_json FROM judgment_attempts
@@ -311,7 +325,7 @@ export function getSameTaskAnswers(
       median: picked.median,
       spread: picked.spread,
       flagged: (picked.spread ?? 0) > 3,
-      validatorsPassed: validatorCounts.passed ?? 0,
+      validatorsPassed: validatorCounts.passed,
       validatorsTotal: validatorCounts.total,
       feedback,
     };

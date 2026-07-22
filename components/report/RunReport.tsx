@@ -20,11 +20,17 @@ export type RunReportProps = {
 function countTasks(snapshot: RunSnapshot) {
   let scored = 0;
   let errored = 0;
+  let penalized = 0;
+  let excluded = 0;
   for (const tr of snapshot.task_results) {
     if (tr.status === "scored") scored += 1;
-    else if (tr.status === "error") errored += 1;
+    else if (tr.status === "error") {
+      errored += 1;
+      if (tr.error?.kind === "judging_failure") excluded += 1;
+      else penalized += 1;
+    }
   }
-  return { scored, errored, total: snapshot.task_results.length };
+  return { scored, errored, total: snapshot.task_results.length, penalized, excluded };
 }
 
 /** Report tab root — scores, cost, metadata, exports (plans/10 §5). */
@@ -33,8 +39,10 @@ export function RunReport({
   eligibilityReason,
   onOpenCell,
 }: RunReportProps) {
-  const { scored, errored } = countTasks(snapshot);
-  const eligible = snapshot.run.status === "completed";
+  const { scored, errored, penalized, excluded } = countTasks(snapshot);
+  const cancelled = snapshot.run.status === "cancelled";
+  const hasScore = snapshot.bundle_run_score != null;
+  const eligible = !cancelled && (snapshot.run.status === "completed" || hasScore);
   const started = snapshot.run.started_at
     ? Date.parse(snapshot.run.started_at)
     : null;
@@ -45,6 +53,19 @@ export function RunReport({
     started != null && finished != null ? finished - started : null;
 
   const exportBase = `/api/runs/${snapshot.run.id}/export`;
+
+  const leaderboardSub = cancelled
+    ? eligibilityReason ?? "Cancelled"
+    : errored > 0
+      ? [
+          penalized > 0 ? `${penalized} penalized (score 0)` : null,
+          excluded > 0 ? `${excluded} excluded (judge fault)` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ") || eligibilityReason || "Partial coverage"
+      : snapshot.run.status === "completed"
+        ? "Complete run"
+        : eligibilityReason ?? `Status: ${snapshot.run.status}`;
 
   return (
     <div className="flex flex-col gap-8" data-testid="run-report">
@@ -65,17 +86,25 @@ export function RunReport({
         <StatCard
           label="Tasks"
           value={`${scored}/${scored + errored}`}
-          sub={errored > 0 ? `${errored} errored` : "all scored"}
+          sub={
+            errored > 0
+              ? `${penalized} penalized · ${excluded} excluded`
+              : "all scored"
+          }
         />
         <StatCard
           label="Leaderboard"
-          value={eligible ? "✓ Counted" : "✕ Not eligible"}
-          tone={eligible ? "accent" : "warn"}
-          sub={
-            eligible
-              ? "Complete run"
-              : eligibilityReason ?? `Status: ${snapshot.run.status}`
+          value={
+            cancelled
+              ? "✕ Not eligible"
+              : errored > 0
+                ? "✓ With penalties"
+                : eligible
+                  ? "✓ Counted"
+                  : "✕ Not eligible"
           }
+          tone={cancelled ? "warn" : eligible ? "accent" : "warn"}
+          sub={leaderboardSub}
         />
       </div>
 

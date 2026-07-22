@@ -36,6 +36,7 @@ type SortKey =
   | "rank"
   | "score"
   | "complete_runs"
+  | "coverage"
   | "success_rate"
   | "avg_cost_usd_per_run"
   | "avg_latency_ms"
@@ -138,6 +139,36 @@ export function LeaderboardTable({ rows, bundleSlug, demo }: LeaderboardTablePro
       mono: true,
       sortable: true,
       render: (r) => r.complete_runs,
+    },
+    {
+      key: "coverage",
+      header: "Coverage",
+      mono: true,
+      sortable: true,
+      className: "hidden md:table-cell",
+      render: (r) => (
+        <Tooltip
+          content={[
+            "Share of trials that counted toward the score.",
+            r.penalized_tasks > 0
+              ? `${r.penalized_tasks} penalized (infra → score 0)`
+              : null,
+            r.excluded_tasks > 0
+              ? `${r.excluded_tasks} excluded (judge fault — not penalized)`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        >
+          <span
+            className={
+              r.coverage < 1 ? "text-warn-400" : "text-dim"
+            }
+          >
+            {formatPercent(r.coverage)}
+          </span>
+        </Tooltip>
+      ),
     },
     {
       key: "success_rate",

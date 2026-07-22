@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "@/lib/client/apiKey";
 import { formatRelativeTime } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -23,7 +24,7 @@ export function CatalogHeader({ count, fetchedAt, source }: CatalogHeaderProps) 
     setRefreshing(true);
     setRefreshFailed(false);
     try {
-      const res = await fetch("/api/models?refresh=1", { cache: "no-store" });
+      const res = await apiFetch("/api/models?refresh=1", { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       router.refresh();
     } catch {

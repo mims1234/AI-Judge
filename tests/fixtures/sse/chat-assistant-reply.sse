@@ -1,0 +1,28 @@
+: keepalive
+
+data: {"choices":[{"delta":{"content":"Here is "},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"a clean "},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"implemen"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"tation:\n"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"\nfunctio"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"n add(a:"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" number,"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" b: numb"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"er) { re"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"turn a +"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" b; }"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"usage":{"prompt_tokens":40,"completion_tokens":30,"total_tokens":70,"cost":0.0003}}
+
+data: [DONE]
+

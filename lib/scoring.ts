@@ -11,6 +11,17 @@ import {
   type JudgeOutput,
 } from "@/lib/schemas";
 import type { TaskSnapshot, ValidatorFinding } from "@/lib/validators";
+import {
+  hydrateValidatorFinding,
+  isCountableFinding,
+  isInformationalFinding,
+  isSkippedFinding,
+} from "@/lib/validators";
+
+/** Expected active judges on a full panel. */
+export const FULL_PANEL_SIZE = 3;
+/** Neutral midpoint used when shrinking partial-panel scores. */
+export const PANEL_NEUTRAL_SCORE = 5;
 
 export function median(values: number[]): number {
   if (values.length === 0) return 0;
@@ -39,16 +50,149 @@ export function computedOverall(scores: {
   ]);
 }
 
+/**
+ * Shrink a trial/session score toward the neutral midpoint when fewer judges
+ * contributed than the expected panel. Full panels pass through unchanged.
+ * Symmetric for high/low.
+ * adjusted = (n * median + (expected - n) * 5) / expected
+ *
+ * @param expectedPanel Bundle runs default to 3; chat playground may use 3–5.
+ */
+export function panelConfidenceAdjusted(
+  medianOverall: number,
+  validJudges: number,
+  expectedPanel: number = FULL_PANEL_SIZE,
+): number {
+  const expected = Math.max(1, Math.floor(expectedPanel));
+  const n = Math.max(0, Math.min(expected, Math.floor(validJudges)));
+  return (n * medianOverall + (expected - n) * PANEL_NEUTRAL_SCORE) / expected;
+}
+
+export type CategoryScoresMeta = {
+  coverage: number;
+  penalized_count: number;
+  excluded_count: number;
+  partial_panel_count: number;
+};
+
+export type CategoryScoresPayload = {
+  scores: Record<string, number>;
+  meta: CategoryScoresMeta;
+};
+
+/**
+ * Parse category_scores_json supporting both legacy flat maps and the new
+ * `{ scores, meta }` envelope. Existing rows keep working.
+ */
+export function parseCategoryScoresJson(raw: string): CategoryScoresPayload {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {
+      scores: {},
+      meta: {
+        coverage: 1,
+        penalized_count: 0,
+        excluded_count: 0,
+        partial_panel_count: 0,
+      },
+    };
+  }
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed) &&
+    "scores" in parsed &&
+    typeof (parsed as { scores: unknown }).scores === "object" &&
+    (parsed as { scores: unknown }).scores != null
+  ) {
+    const obj = parsed as {
+      scores: Record<string, unknown>;
+      meta?: Partial<CategoryScoresMeta>;
+    };
+    const scores: Record<string, number> = {};
+    for (const [k, v] of Object.entries(obj.scores)) {
+      if (typeof v === "number" && Number.isFinite(v)) scores[k] = v;
+    }
+    return {
+      scores,
+      meta: {
+        coverage:
+          typeof obj.meta?.coverage === "number" ? obj.meta.coverage : 1,
+        penalized_count:
+          typeof obj.meta?.penalized_count === "number"
+            ? obj.meta.penalized_count
+            : 0,
+        excluded_count:
+          typeof obj.meta?.excluded_count === "number"
+            ? obj.meta.excluded_count
+            : 0,
+        partial_panel_count:
+          typeof obj.meta?.partial_panel_count === "number"
+            ? obj.meta.partial_panel_count
+            : 0,
+      },
+    };
+  }
+  // Legacy flat map: { coding: 7.5, math: 8, ... }
+  const scores: Record<string, number> = {};
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (k.startsWith("_")) continue;
+      if (typeof v === "number" && Number.isFinite(v)) scores[k] = v;
+    }
+  }
+  return {
+    scores,
+    meta: {
+      coverage: 1,
+      penalized_count: 0,
+      excluded_count: 0,
+      partial_panel_count: 0,
+    },
+  };
+}
+
+function parseTaskErrorKind(error: string | null): string | null {
+  if (!error) return null;
+  try {
+    const kind = (JSON.parse(error) as { kind?: unknown }).kind;
+    return typeof kind === "string" ? kind : null;
+  } catch {
+    return null;
+  }
+}
+
 export function renderValidatorBlock(findings: ValidatorFinding[]): string {
-  const lines = findings.map((f) => {
-    const mark = f.passed ? "PASS" : "FAIL";
+  const hydrated = findings.map(hydrateValidatorFinding);
+  const lines = hydrated.map((f) => {
+    let mark: string;
+    if (isSkippedFinding(f)) mark = "SKIPPED — not evaluated";
+    else if (isInformationalFinding(f)) mark = f.passed ? "NOTE" : "NOTE";
+    else mark = f.passed ? "PASS" : "FAIL";
     const detail = f.details ? ` — ${f.details}` : "";
     return `- [${mark}] ${f.validator}${detail}`;
   });
+  const hasSkipped = hydrated.some(isSkippedFinding);
+  const hasNotes = hydrated.some(isInformationalFinding);
+  const footer: string[] = [
+    "Do not re-litigate PASS/FAIL facts. Factor them into correctness and requirement_compliance.",
+  ];
+  if (hasSkipped) {
+    footer.push(
+      "IGNORE [SKIPPED] checks — they were not evaluated (usually unparseable JSON). Do not treat them as failures.",
+    );
+  }
+  if (hasNotes) {
+    footer.push(
+      "[NOTE] items are informational formatting hints only — do not heavily penalize solely for them.",
+    );
+  }
   return [
-    "DETERMINISTIC VALIDATION RESULTS (trusted, computed by the harness — treat as ground truth):",
+    "DETERMINISTIC VALIDATION RESULTS (trusted, computed by the harness — treat PASS/FAIL as ground truth):",
     ...lines,
-    "Do not re-litigate these facts. Factor them into correctness and requirement_compliance.",
+    ...footer,
   ].join("\n");
 }
 
@@ -107,10 +251,13 @@ export function aggregateTask(taskResultId: string): {
   const flagged = disagreement > 3;
 
   const vr = prepare(
-    `SELECT passed FROM validator_results WHERE task_result_id = ?`,
-  ).all(taskResultId) as Array<{ passed: number }>;
-  const validators_passed = vr.filter((v) => v.passed === 1).length;
-  const validators_total = vr.length;
+    `SELECT passed, details FROM validator_results WHERE task_result_id = ?`,
+  ).all(taskResultId) as Array<{ passed: number; details: string }>;
+  const countable = vr.filter((v) =>
+    isCountableFinding({ details: v.details ?? "" }),
+  );
+  const validators_passed = countable.filter((v) => v.passed === 1).length;
+  const validators_total = countable.length;
 
   prepare(`DELETE FROM task_scores WHERE task_result_id = ?`).run(taskResultId);
   prepare(
@@ -151,13 +298,15 @@ export function aggregateTask(taskResultId: string): {
     actual_json: string | null;
     details: string;
   }>;
-  const findingObjs: ValidatorFinding[] = findings.map((f) => ({
-    validator: f.validator,
-    passed: f.passed === 1,
-    expected_json: f.expected_json,
-    actual_json: f.actual_json,
-    details: f.details,
-  }));
+  const findingObjs: ValidatorFinding[] = findings.map((f) =>
+    hydrateValidatorFinding({
+      validator: f.validator,
+      passed: f.passed === 1,
+      expected_json: f.expected_json,
+      actual_json: f.actual_json,
+      details: f.details ?? "",
+    }),
+  );
 
   const finalAttempts = prepare(
     `SELECT * FROM judgment_attempts
@@ -197,7 +346,6 @@ export function finalizeRun(runId: string): {
     categories?: Category[];
   };
   const categories = params.categories ?? CATEGORY_ORDER;
-  const complete = run.status === "completed" && categories.length === 8;
 
   const candidates = prepare(
     `SELECT model_id FROM run_candidates WHERE run_id = ?`,
@@ -217,35 +365,105 @@ export function finalizeRun(runId: string): {
 
   let macroSum = 0;
   let macroCount = 0;
+  let anyIncompleteCoverage = false;
 
   for (const { model_id } of candidates) {
     const categoryScores: Record<string, number> = {};
+    let penalized_count = 0;
+    let excluded_count = 0;
+    let partial_panel_count = 0;
+    let scored_trials = 0;
+    let total_trials = 0;
+
     for (const cat of categories) {
-      const trialMedians = prepare(
-        `SELECT ts.median_overall
+      const trialValues: number[] = [];
+
+      const scored = prepare(
+        `SELECT ts.median_overall, ts.judge_overalls_json
          FROM task_scores ts
          JOIN task_results tr ON tr.id = ts.task_result_id
          WHERE ts.run_id = ? AND ts.candidate_model_id = ? AND ts.category = ?
            AND tr.status = 'scored'`,
-      ).all(runId, model_id, cat) as Array<{ median_overall: number }>;
+      ).all(runId, model_id, cat) as Array<{
+        median_overall: number;
+        judge_overalls_json: string;
+      }>;
 
-      if (trialMedians.length > 0) {
-        categoryScores[cat] = median(
-          trialMedians.map((t) => t.median_overall),
-        );
+      for (const t of scored) {
+        total_trials += 1;
+        scored_trials += 1;
+        let n = FULL_PANEL_SIZE;
+        try {
+          const arr = JSON.parse(t.judge_overalls_json) as unknown;
+          if (Array.isArray(arr)) n = arr.length;
+        } catch {
+          n = FULL_PANEL_SIZE;
+        }
+        if (n < FULL_PANEL_SIZE) partial_panel_count += 1;
+        trialValues.push(panelConfidenceAdjusted(t.median_overall, n));
+      }
+
+      const errored = prepare(
+        `SELECT tr.error
+         FROM task_results tr
+         JOIN tasks t ON t.id = tr.task_id
+         WHERE tr.run_id = ? AND tr.candidate_model_id = ? AND t.category = ?
+           AND tr.status = 'error'`,
+      ).all(runId, model_id, cat) as Array<{ error: string | null }>;
+
+      for (const row of errored) {
+        total_trials += 1;
+        const kind = parseTaskErrorKind(row.error);
+        if (kind === "judging_failure") {
+          // Candidate answered; judges failed — exclude (coverage gap only).
+          excluded_count += 1;
+        } else {
+          // infra_failure or unknown → candidate fault → score 0.
+          trialValues.push(0);
+          penalized_count += 1;
+        }
+      }
+
+      if (trialValues.length > 0) {
+        categoryScores[cat] = median(trialValues);
       }
     }
 
-    const catValues = Object.values(categoryScores);
-    const overall =
-      complete && catValues.length === categories.length
-        ? mean(catValues)
-        : catValues.length > 0
-          ? mean(catValues)
-          : null;
+    const catValues = categories
+      .map((c) => categoryScores[c])
+      .filter((n): n is number => typeof n === "number");
+    const overall = catValues.length > 0 ? mean(catValues) : null;
+    // Coverage = share of trials that produced a real judge score (not penalty/exclusion).
+    const coverage = total_trials > 0 ? scored_trials / total_trials : 1;
+    if (coverage < 1 || penalized_count > 0 || excluded_count > 0) {
+      anyIncompleteCoverage = true;
+    }
 
-    if (overall != null && complete) {
-      macroSum += overall;
+    // complete=1 only for clean full-coverage completed runs (badge semantics).
+    const candidateComplete =
+      run.status === "completed" &&
+      categories.length === 8 &&
+      catValues.length === categories.length &&
+      penalized_count === 0 &&
+      excluded_count === 0 &&
+      coverage >= 1;
+
+    const payload: CategoryScoresPayload = {
+      scores: categoryScores,
+      meta: {
+        coverage,
+        penalized_count,
+        excluded_count,
+        partial_panel_count,
+      },
+    };
+
+    // Cancelled runs never contribute a score. Incomplete runs DO — with penalties.
+    const overall_score =
+      run.status === "cancelled" ? null : overall;
+
+    if (overall_score != null) {
+      macroSum += overall_score;
       macroCount += 1;
     }
 
@@ -264,25 +482,32 @@ export function finalizeRun(runId: string): {
       run_id: runId,
       bundle_id: run.bundle_id,
       candidate_model_id: model_id,
-      complete: complete ? 1 : 0,
-      category_scores_json: JSON.stringify(categoryScores),
-      overall_score:
-        run.status === "cancelled" || run.status === "incomplete"
-          ? null
-          : overall,
+      complete: candidateComplete ? 1 : 0,
+      category_scores_json: JSON.stringify(payload),
+      overall_score,
       total_cost_usd: costRow.c,
       avg_latency_ms: latencyRow.avg_lat,
       created_at: Date.now(),
     });
   }
 
-  // For incomplete/cancelled, force overall_score NULL and complete=0
-  if (run.status !== "completed") {
+  if (run.status === "cancelled") {
     prepare(
       `UPDATE bundle_run_scores SET complete = 0, overall_score = NULL WHERE run_id = ?`,
     ).run(runId);
     return { bundleRunScore: null, complete: false };
   }
+
+  const complete =
+    run.status === "completed" &&
+    !anyIncompleteCoverage &&
+    candidates.length > 0 &&
+    (
+      prepare(
+        `SELECT COUNT(*) AS n FROM bundle_run_scores
+         WHERE run_id = ? AND complete = 1`,
+      ).get(runId) as { n: number }
+    ).n === candidates.length;
 
   return {
     bundleRunScore: macroCount > 0 ? macroSum / macroCount : null,
@@ -307,6 +532,39 @@ export interface LeaderboardRow {
     string,
     { median: number; spread: number; validator_pass_rate: number }
   >;
+  /** Mean coverage across contributing runs (1 = full, no gaps). */
+  coverage: number;
+  /** Total infra-failure trials counted as 0 across contributing runs. */
+  penalized_tasks: number;
+  /** Total judging-failure trials excluded (not scored against the model). */
+  excluded_tasks: number;
+}
+
+/**
+ * Re-finalize incomplete/completed runs that still have null overall_score
+ * so pre-existing paid work appears on the leaderboard after the scoring change.
+ */
+function backfillNullOverallScores(bundleDbId: string): void {
+  const stale = prepare(
+    `SELECT DISTINCT brs.run_id AS run_id
+     FROM bundle_run_scores brs
+     JOIN runs r ON r.id = brs.run_id
+     WHERE brs.bundle_id = ?
+       AND brs.overall_score IS NULL
+       AND r.status IN ('completed', 'incomplete')
+       AND EXISTS (
+         SELECT 1 FROM task_results tr
+         WHERE tr.run_id = brs.run_id AND tr.status IN ('scored', 'error')
+       )`,
+  ).all(bundleDbId) as Array<{ run_id: string }>;
+
+  for (const { run_id } of stale) {
+    try {
+      finalizeRun(run_id);
+    } catch (err) {
+      console.warn("[scoring] backfill finalizeRun failed", run_id, err);
+    }
+  }
 }
 
 export function queryLeaderboard(
@@ -327,11 +585,15 @@ export function queryLeaderboard(
     throw new Error("BUNDLE_NOT_FOUND");
   }
 
-  const completeScores = prepare(
+  backfillNullOverallScores(bundle.id);
+
+  // Include any run with a non-null overall (complete badge optional).
+  const scoredRuns = prepare(
     `SELECT brs.*, r.created_at AS run_created_at, r.bundle_hash
      FROM bundle_run_scores brs
      JOIN runs r ON r.id = brs.run_id
-     WHERE brs.bundle_id = ? AND brs.complete = 1 AND brs.overall_score IS NOT NULL
+     WHERE brs.bundle_id = ? AND brs.overall_score IS NOT NULL
+       AND r.status != 'cancelled'
      ORDER BY r.created_at ASC`,
   ).all(bundle.id) as Array<{
     run_id: string;
@@ -344,8 +606,8 @@ export function queryLeaderboard(
     bundle_hash: string;
   }>;
 
-  const byModel = new Map<string, typeof completeScores>();
-  for (const row of completeScores) {
+  const byModel = new Map<string, typeof scoredRuns>();
+  for (const row of scoredRuns) {
     const list = byModel.get(row.candidate_model_id) ?? [];
     list.push(row);
     byModel.set(row.candidate_model_id, list);
@@ -356,10 +618,9 @@ export function queryLeaderboard(
   for (const [model_id, runs] of byModel) {
     const scores = runs.map((r) => {
       if (category) {
-        const cats = JSON.parse(r.category_scores_json) as Record<
-          string,
-          number
-        >;
+        const { scores: cats } = parseCategoryScoresJson(
+          r.category_scores_json,
+        );
         return cats[category] ?? null;
       }
       return r.overall_score;
@@ -369,6 +630,11 @@ export function queryLeaderboard(
 
     const score = median(usable);
     const complete_runs = usable.length;
+
+    const metas = runs.map((r) => parseCategoryScoresJson(r.category_scores_json).meta);
+    const coverage = mean(metas.map((m) => m.coverage));
+    const penalized_tasks = metas.reduce((a, m) => a + m.penalized_count, 0);
+    const excluded_tasks = metas.reduce((a, m) => a + m.excluded_count, 0);
 
     // Ancillary stats across those runs
     const runIds = runs.map((r) => r.run_id);
@@ -400,10 +666,9 @@ export function queryLeaderboard(
     for (const cat of CATEGORY_ORDER) {
       const catScores = runs
         .map((r) => {
-          const cats = JSON.parse(r.category_scores_json) as Record<
-            string,
-            number
-          >;
+          const { scores: cats } = parseCategoryScoresJson(
+            r.category_scores_json,
+          );
           return cats[cat];
         })
         .filter((n): n is number => typeof n === "number");
@@ -445,6 +710,9 @@ export function queryLeaderboard(
       spread_history,
       category_medians,
       category_detail,
+      coverage,
+      penalized_tasks,
+      excluded_tasks,
     });
   }
 

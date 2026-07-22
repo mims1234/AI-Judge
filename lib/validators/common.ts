@@ -4,6 +4,74 @@ export interface ValidatorFinding {
   expected_json: string | null;
   actual_json: string | null;
   details: string;
+  /**
+   * Not evaluated (usually because JSON was unparseable).
+   * Persisted via details prefix `skipped:` for DB round-trips / legacy rows.
+   */
+  skipped?: boolean;
+  /**
+   * Soft note — shown to judges/UI but excluded from pass-rate counts.
+   * Persisted via details prefix `note:` for DB round-trips.
+   */
+  informational?: boolean;
+}
+
+/** Creative categories where prose outside JSON is a note, not a hard fail. */
+export const CREATIVE_CATEGORIES = new Set([
+  "roleplay",
+  "story",
+  "poster",
+  "marketing",
+]);
+
+export function isSkippedFinding(f: {
+  details: string;
+  skipped?: boolean;
+}): boolean {
+  return f.skipped === true || f.details.startsWith("skipped:");
+}
+
+export function isInformationalFinding(f: {
+  details: string;
+  informational?: boolean;
+}): boolean {
+  return f.informational === true || f.details.startsWith("note:");
+}
+
+/** Findings that count toward validators_passed / validators_total. */
+export function isCountableFinding(f: {
+  details: string;
+  skipped?: boolean;
+  informational?: boolean;
+}): boolean {
+  return !isSkippedFinding(f) && !isInformationalFinding(f);
+}
+
+/** Normalize a finding after load (derive flags from details prefixes). */
+export function hydrateValidatorFinding(f: ValidatorFinding): ValidatorFinding {
+  return {
+    ...f,
+    skipped: isSkippedFinding(f),
+    informational: isInformationalFinding(f),
+  };
+}
+
+function skippedFinding(validator: string): ValidatorFinding {
+  return {
+    validator,
+    passed: false,
+    expected_json: null,
+    actual_json: null,
+    details: "skipped: unparseable JSON",
+    skipped: true,
+  };
+}
+
+function withNotePrefix(details: string): string {
+  const trimmed = details.trim();
+  if (!trimmed) return "note:";
+  if (trimmed.startsWith("note:")) return trimmed;
+  return `note: ${trimmed}`;
 }
 
 export interface TaskSnapshot {
@@ -33,8 +101,35 @@ export function countWords(text: string): number {
 }
 
 /**
- * Trim; unwrap a single Markdown code fence if present; JSON.parse remainder.
- * Any prose outside the JSON object (beyond the tolerated fence) fails no_extra_prose.
+ * Try JSON.parse on a brace-sliced substring. Returns null if not parseable.
+ */
+function tryParseObjectSlice(text: string): {
+  value: unknown;
+  slice: string;
+  hasExtraProse: boolean;
+} | null {
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    return null;
+  }
+  const before = text.slice(0, firstBrace).trim();
+  const after = text.slice(lastBrace + 1).trim();
+  // Trailing fence close after the object (``` leftover) is not prose.
+  const afterIsFenceClose = after === "" || /^```+$/.test(after);
+  const hasExtraProse = before.length > 0 || (!afterIsFenceClose && after.length > 0);
+  const slice = text.slice(firstBrace, lastBrace + 1);
+  try {
+    return { value: JSON.parse(slice), slice, hasExtraProse };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Trim; unwrap a Markdown code fence when present; JSON.parse remainder.
+ * Tolerates prose around the object (flagged via hasExtraProse) and unclosed
+ * / nested fences by falling back to first-{ … last-} slicing.
  */
 export function extractJson(rawOutput: string): ExtractResult {
   const trimmed = (rawOutput ?? "").trim();
@@ -48,67 +143,73 @@ export function extractJson(rawOutput: string): ExtractResult {
     };
   }
 
-  let body = trimmed;
-  let hadFence = false;
-
-  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
-  if (fenceMatch) {
-    hadFence = true;
-    body = fenceMatch[1]!.trim();
-  }
-
-  // Detect leading/trailing prose when not a clean fence wrap
-  if (!hadFence) {
-    const firstBrace = body.indexOf("{");
-    const lastBrace = body.lastIndexOf("}");
-    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-      return {
-        ok: false,
-        value: null,
-        hadFence: false,
-        hasExtraProse: true,
-        rawJsonText: null,
-      };
-    }
-    const before = body.slice(0, firstBrace).trim();
-    const after = body.slice(lastBrace + 1).trim();
-    const hasExtraProse = before.length > 0 || after.length > 0;
-    const jsonSlice = body.slice(firstBrace, lastBrace + 1);
+  // Clean single fence wrapping the whole response.
+  const cleanFence = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i);
+  if (cleanFence) {
+    const body = cleanFence[1]!.trim();
     try {
-      const value = JSON.parse(jsonSlice);
+      const value = JSON.parse(body);
       return {
         ok: true,
         value,
-        hadFence: false,
-        hasExtraProse,
-        rawJsonText: jsonSlice,
+        hadFence: true,
+        hasExtraProse: false,
+        rawJsonText: body,
       };
     } catch {
+      // Fall through to brace-slice inside the fence body.
+      const sliced = tryParseObjectSlice(body);
+      if (sliced) {
+        return {
+          ok: true,
+          value: sliced.value,
+          hadFence: true,
+          hasExtraProse: sliced.hasExtraProse,
+          rawJsonText: sliced.slice,
+        };
+      }
       return {
         ok: false,
         value: null,
-        hadFence: false,
-        hasExtraProse,
+        hadFence: true,
+        hasExtraProse: false,
         rawJsonText: null,
       };
     }
   }
 
+  // Opening fence without a clean close, or multiple fences — peel the opener.
+  const openFence = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*)$/i);
+  const candidate = openFence ? openFence[1]!.trim() : trimmed;
+  const hadFence = Boolean(openFence);
+
+  const sliced = tryParseObjectSlice(candidate);
+  if (sliced) {
+    return {
+      ok: true,
+      value: sliced.value,
+      hadFence,
+      hasExtraProse: sliced.hasExtraProse,
+      rawJsonText: sliced.slice,
+    };
+  }
+
+  // Last resort: entire trimmed text as JSON.
   try {
-    const value = JSON.parse(body);
+    const value = JSON.parse(trimmed);
     return {
       ok: true,
       value,
-      hadFence: true,
+      hadFence: false,
       hasExtraProse: false,
-      rawJsonText: body,
+      rawJsonText: trimmed,
     };
   } catch {
     return {
       ok: false,
       value: null,
-      hadFence: true,
-      hasExtraProse: false,
+      hadFence,
+      hasExtraProse: true,
       rawJsonText: null,
     };
   }
@@ -155,22 +256,13 @@ function getAtPath(obj: unknown, path: string[]): unknown {
   return cur;
 }
 
-function skipped(...validators: string[]): ValidatorFinding[] {
-  return validators.map((validator) => ({
-    validator,
-    passed: false,
-    expected_json: null,
-    actual_json: null,
-    details: "skipped: unparseable JSON",
-  }));
-}
-
 export function runUniversalValidators(
   rawOutput: string,
   task: TaskSnapshot,
 ): { findings: ValidatorFinding[]; parsed: Record<string, unknown> | null } {
   const extracted = extractJson(rawOutput);
   const findings: ValidatorFinding[] = [];
+  const creative = CREATIVE_CATEGORIES.has(task.category);
 
   findings.push({
     validator: "json_parseable",
@@ -180,19 +272,24 @@ export function runUniversalValidators(
     details: extracted.ok ? "" : "output is not a single valid JSON document",
   });
 
+  const prosePassed = extracted.ok && !extracted.hasExtraProse;
+  const proseDetails = extracted.hasExtraProse
+    ? "prose found outside the JSON document"
+    : "";
   findings.push({
     validator: "no_extra_prose",
-    passed: extracted.ok && !extracted.hasExtraProse,
+    passed: prosePassed,
     expected_json: '"JSON only (optional single fence)"',
     actual_json: extracted.hasExtraProse ? '"prose outside JSON"' : '"clean"',
-    details: extracted.hasExtraProse
-      ? "prose found outside the JSON document"
-      : "",
+    details: creative ? withNotePrefix(proseDetails || "clean envelope") : proseDetails,
+    informational: creative,
   });
 
   if (!extracted.ok || typeof extracted.value !== "object" || extracted.value === null) {
     findings.push(
-      ...skipped("required_keys", "key_types", "array_counts"),
+      skippedFinding("required_keys"),
+      skippedFinding("key_types"),
+      skippedFinding("array_counts"),
     );
     return { findings, parsed: null };
   }
@@ -278,11 +375,8 @@ export function validatePosterWordLimit(
 ): ValidatorFinding {
   if (!parsed) {
     return {
-      validator: "poster_word_limit",
-      passed: false,
+      ...skippedFinding("poster_word_limit"),
       expected_json: '"< 65 words"',
-      actual_json: null,
-      details: "skipped: unparseable JSON",
     };
   }
   const fields = ["headline", "tagline", "body", "cta"];
@@ -304,11 +398,8 @@ export function validateStoryWordRange(
 ): ValidatorFinding {
   if (!parsed) {
     return {
-      validator: "story_word_range",
-      passed: false,
+      ...skippedFinding("story_word_range"),
       expected_json: '"[500, 700]"',
-      actual_json: null,
-      details: "skipped: unparseable JSON",
     };
   }
   const story = typeof parsed.story === "string" ? parsed.story : "";
@@ -330,11 +421,8 @@ export function validateRoleplayCounts(
 ): ValidatorFinding {
   if (!parsed) {
     return {
-      validator: "roleplay_counts",
-      passed: false,
+      ...skippedFinding("roleplay_counts"),
       expected_json: JSON.stringify({ questions: 3, steps: 5 }),
-      actual_json: null,
-      details: "skipped: unparseable JSON",
     };
   }
   const q = Array.isArray(parsed.diagnostic_questions)
@@ -361,13 +449,7 @@ export function validateMarketingFields(
 ): ValidatorFinding {
   // Delegates to array_counts/required_keys semantics with marketing's exact counts.
   if (!parsed) {
-    return {
-      validator: "marketing_fields",
-      passed: false,
-      expected_json: null,
-      actual_json: null,
-      details: "skipped: unparseable JSON",
-    };
+    return skippedFinding("marketing_fields");
   }
   const hero = parsed.hero as Record<string, unknown> | undefined;
   const benefits = hero && Array.isArray(hero.benefits) ? hero.benefits : null;
@@ -416,25 +498,16 @@ export function validateCodingShape(
   if (!parsed) {
     return [
       {
-        validator: "coding_function_present",
-        passed: false,
+        ...skippedFinding("coding_function_present"),
         expected_json: '"createIdempotencyGuard"',
-        actual_json: null,
-        details: "skipped: unparseable JSON",
       },
       {
-        validator: "coding_test_count",
-        passed: false,
+        ...skippedFinding("coding_test_count"),
         expected_json: ">=5",
-        actual_json: null,
-        details: "skipped: unparseable JSON",
       },
       {
-        validator: "coding_no_forbidden_imports",
-        passed: false,
+        ...skippedFinding("coding_no_forbidden_imports"),
         expected_json: JSON.stringify(FORBIDDEN_MODULES),
-        actual_json: null,
-        details: "skipped: unparseable JSON",
       },
     ];
   }

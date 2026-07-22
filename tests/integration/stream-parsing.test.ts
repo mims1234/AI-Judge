@@ -98,6 +98,37 @@ describe("OpenRouter SSE stream parsing (plans/11 §2.1)", () => {
     expect(result.text.includes("keepalive")).toBe(false);
   });
 
+  it("CRLF-framed SSE streams deltas incrementally", async () => {
+    await boot("sse/candidate-stream-crlf.sse");
+    mock!.setDefaultChat({
+      kind: "sse",
+      fixtureRelPath: "sse/candidate-stream-crlf.sse",
+      chunkBytes: 24,
+    });
+    let deltas = 0;
+    let text = "";
+    const result = await streamChat({
+      model: "mock/cand-a",
+      messages: [{ role: "user", content: "crlf" }],
+      temperature: 0,
+      maxTokens: 256,
+      signal: AbortSignal.timeout(15_000),
+      onDelta: (d) => {
+        deltas += 1;
+        text += d;
+      },
+      deadlineMs: 15_000,
+    });
+    const expected = fs.readFileSync(
+      path.join(process.cwd(), "tests/fixtures/candidates/math/valid-1.txt"),
+      "utf8",
+    );
+    expect(result.text).toBe(expected);
+    expect(text).toBe(expected);
+    // Without CRLF normalization, frames only flush at end → often 0–1 deltas.
+    expect(deltas).toBeGreaterThan(1);
+  });
+
   it("mid-stream provider error becomes typed failure", async () => {
     await boot("sse/stream-with-error-event.sse");
     await expect(

@@ -22,6 +22,8 @@ export type ValidatorCheck = {
   details: string;
   expected?: string;
   actual?: string;
+  skipped?: boolean;
+  informational?: boolean;
 };
 
 export type JudgeVerdict = {
@@ -57,6 +59,7 @@ export type TrialState = {
   taskResultId: string;
   taskId: string;
   status: TaskResultStatus;
+  requestHash?: string | null;
   answer: {
     text: string;
     tokens: number;
@@ -158,6 +161,7 @@ export function hydrateFromSnapshot(snapshot: RunSnapshot): RunStoreState {
       taskResultId: tr.id,
       taskId: tr.task_id,
       status: tr.status,
+      requestHash: tr.request_hash,
       answer: {
         text: tr.raw_output ?? "",
         tokens: tr.tokens?.completion ?? 0,
@@ -172,11 +176,19 @@ export function hydrateFromSnapshot(snapshot: RunSnapshot): RunStoreState {
         details: v.details,
         expected: v.expected,
         actual: v.actual,
+        skipped: v.details?.startsWith("skipped:") ?? false,
+        informational: v.details?.startsWith("note:") ?? false,
       })),
-      allPassed:
-        tr.validator_results.length > 0
-          ? tr.validator_results.every((v) => v.passed)
-          : undefined,
+      allPassed: (() => {
+        const countable = tr.validator_results.filter(
+          (v) =>
+            !(v.details?.startsWith("skipped:") ?? false) &&
+            !(v.details?.startsWith("note:") ?? false),
+        );
+        return countable.length > 0
+          ? countable.every((v) => v.passed)
+          : undefined;
+      })(),
       judges: new Map(
         tr.judgments.map((j) => [
           j.judge_model_id,
@@ -448,6 +460,12 @@ export function applySseEvent(
         details: c.details,
         expected: c.expected,
         actual: c.actual,
+        skipped:
+          c.skipped ??
+          (typeof c.details === "string" && c.details.startsWith("skipped:")),
+        informational:
+          c.informational ??
+          (typeof c.details === "string" && c.details.startsWith("note:")),
       }));
       trial.allPassed = event.data.allPassed;
       if (trial.status === "streaming" || trial.status === "pending") {

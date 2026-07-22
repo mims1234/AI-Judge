@@ -1,4 +1,8 @@
-import { apiError } from "@/lib/api-helpers";
+import {
+  apiError,
+  getKeyFromRequest,
+  needsKeyError,
+} from "@/lib/api-helpers";
 import { getModelCatalog, hasApiKey, OpenRouterError } from "@/lib/openrouter";
 
 export const runtime = "nodejs";
@@ -8,8 +12,16 @@ export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const forceRefresh = url.searchParams.get("refresh") === "1";
+    const userKey = getKeyFromRequest(request);
 
-    const catalog = await getModelCatalog({ forceRefresh });
+    // Force refresh always needs a resolvable key.
+    if (forceRefresh && !hasApiKey(userKey)) {
+      return needsKeyError(
+        "Add your OpenRouter API key in Settings to refresh the model catalog.",
+      );
+    }
+
+    const catalog = await getModelCatalog({ forceRefresh, apiKey: userKey });
     return Response.json({
       source: catalog.source,
       fetched_at: catalog.fetched_at,
@@ -17,11 +29,9 @@ export async function GET(request: Request) {
     });
   } catch (err) {
     if (err instanceof OpenRouterError) {
-      if (err.kind === "missing_key" || !hasApiKey()) {
-        return apiError(
-          "NO_API_KEY",
-          503,
-          "OPENROUTER_API_KEY is not configured",
+      if (err.kind === "missing_key") {
+        return needsKeyError(
+          "Add your OpenRouter API key in Settings to load the model catalog.",
         );
       }
       return apiError(

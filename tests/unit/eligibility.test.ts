@@ -1,10 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { prepare } from "@/lib/db";
-import { finalizeRun, queryLeaderboard } from "@/lib/scoring";
+import {
+  finalizeRun,
+  parseCategoryScoresJson,
+  queryLeaderboard,
+} from "@/lib/scoring";
+import { CATEGORY_ORDER } from "@/lib/schemas";
 import { createTestDb, type TestDb } from "@/tests/integration/helpers/test-db";
 
-describe("eligibility rules (plans/11 §1.4)", () => {
+describe("eligibility rules (penalize, don't discard)", () => {
   let tdb: TestDb;
 
   afterEach(() => {
@@ -22,17 +27,23 @@ describe("eligibility rules (plans/11 §1.4)", () => {
   function insertRun(opts: {
     status: string;
     candidate: string;
-    completeScore?: number | null;
-    forceCompleteFlag?: 0 | 1;
+    categories?: string[];
   }) {
     const bundleId = seedBundle();
     const runId = randomUUID();
+    const categories = opts.categories ?? [...CATEGORY_ORDER];
     prepare(
       `INSERT INTO runs (
         id, bundle_id, bundle_hash, seed, status, parameters_json,
         budget_usd, trials, total_cost_usd, last_event_id, created_at
-      ) VALUES (?, ?, 'hash', 1, ?, '{}', NULL, 1, 0, 0, ?)`,
-    ).run(runId, bundleId, opts.status, Date.now());
+      ) VALUES (?, ?, 'hash', 1, ?, ?, NULL, 1, 0, 0, ?)`,
+    ).run(
+      runId,
+      bundleId,
+      opts.status,
+      JSON.stringify({ categories }),
+      Date.now(),
+    );
     prepare(`INSERT INTO run_candidates (run_id, model_id) VALUES (?, ?)`).run(
       runId,
       opts.candidate,
@@ -40,12 +51,76 @@ describe("eligibility rules (plans/11 §1.4)", () => {
     return { runId, bundleId };
   }
 
+  function taskIdFor(category: string): string {
+    const row = prepare(
+      `SELECT t.id AS id FROM tasks t
+       JOIN bundles b ON b.id = t.bundle_id
+       WHERE b.slug = 'mini-benchmark-v1' AND t.category = ?`,
+    ).get(category) as { id: string };
+    return row.id;
+  }
+
+  function insertScoredTrial(opts: {
+    runId: string;
+    candidate: string;
+    category: string;
+    median: number;
+    judgeOveralls: number[];
+  }) {
+    const trId = randomUUID();
+    const taskId = taskIdFor(opts.category);
+    prepare(
+      `INSERT INTO task_results (
+        id, run_id, task_id, candidate_model_id, trial_index, status
+      ) VALUES (?, ?, ?, ?, 0, 'scored')`,
+    ).run(trId, opts.runId, taskId, opts.candidate);
+    prepare(
+      `INSERT INTO task_scores (
+        id, task_result_id, run_id, task_id, category, candidate_model_id,
+        trial_index, judgment_ids_json, judge_overalls_json, median_overall,
+        disagreement, validators_passed, validators_total, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, '[]', ?, ?, 0, 1, 1, ?)`,
+    ).run(
+      randomUUID(),
+      trId,
+      opts.runId,
+      taskId,
+      opts.category,
+      opts.candidate,
+      JSON.stringify(opts.judgeOveralls),
+      opts.median,
+      Date.now(),
+    );
+  }
+
+  function insertErrorTrial(opts: {
+    runId: string;
+    candidate: string;
+    category: string;
+    kind: "infra_failure" | "judging_failure";
+    trialIndex?: number;
+  }) {
+    const trId = randomUUID();
+    const taskId = taskIdFor(opts.category);
+    prepare(
+      `INSERT INTO task_results (
+        id, run_id, task_id, candidate_model_id, trial_index, status, error
+      ) VALUES (?, ?, ?, ?, ?, 'error', ?)`,
+    ).run(
+      trId,
+      opts.runId,
+      taskId,
+      opts.candidate,
+      opts.trialIndex ?? 0,
+      JSON.stringify({ kind: opts.kind, message: "test" }),
+    );
+  }
+
   it("cancelled runs are never leaderboard-eligible", () => {
     const { runId, bundleId } = insertRun({
       status: "cancelled",
       candidate: "mock/cand-a",
     });
-    // Seed a tempting complete-looking score row — finalizeRun must null it out.
     prepare(
       `INSERT INTO bundle_run_scores (
         id, run_id, bundle_id, candidate_model_id, complete,
@@ -64,17 +139,71 @@ describe("eligibility rules (plans/11 §1.4)", () => {
     expect(row.overall_score).toBeNull();
   });
 
-  it("incomplete runs stay off the leaderboard (infra ≠ zero score)", () => {
+  it("incomplete runs with scored work appear on the leaderboard", () => {
+    const candidate = "mock/cand-b";
     const { runId } = insertRun({
       status: "incomplete",
-      candidate: "mock/cand-b",
+      candidate,
+      categories: ["math", "coding"],
     });
+    insertScoredTrial({
+      runId,
+      candidate,
+      category: "math",
+      median: 8,
+      judgeOveralls: [8, 8, 8],
+    });
+    insertErrorTrial({
+      runId,
+      candidate,
+      category: "coding",
+      kind: "infra_failure",
+    });
+
     finalizeRun(runId);
     const lb = queryLeaderboard("mini-benchmark-v1");
-    expect(lb.rows.find((r) => r.model_id === "mock/cand-b")).toBeUndefined();
+    const row = lb.rows.find((r) => r.model_id === candidate);
+    expect(row).toBeTruthy();
+    // math=8, coding=0 (infra penalty) → mean 4
+    expect(row!.score).toBe(4);
+    expect(row!.penalized_tasks).toBe(1);
+    expect(row!.coverage).toBeLessThan(1);
   });
 
-  it("provisional boundary at exactly 3 complete runs", () => {
+  it("judging_failure excludes trial (does not zero the category)", () => {
+    const candidate = "mock/cand-judge-fault";
+    const { runId } = insertRun({
+      status: "incomplete",
+      candidate,
+      categories: ["math"],
+    });
+    insertScoredTrial({
+      runId,
+      candidate,
+      category: "math",
+      median: 9,
+      judgeOveralls: [9, 9, 9],
+    });
+    insertErrorTrial({
+      runId,
+      candidate,
+      category: "math",
+      kind: "judging_failure",
+      trialIndex: 1,
+    });
+
+    finalizeRun(runId);
+    const brs = prepare(
+      `SELECT category_scores_json, overall_score FROM bundle_run_scores WHERE run_id = ?`,
+    ).get(runId) as { category_scores_json: string; overall_score: number };
+    const parsed = parseCategoryScoresJson(brs.category_scores_json);
+    expect(parsed.scores.math).toBe(9);
+    expect(parsed.meta.excluded_count).toBe(1);
+    expect(parsed.meta.penalized_count).toBe(0);
+    expect(brs.overall_score).toBe(9);
+  });
+
+  it("provisional boundary at exactly 3 scored runs", () => {
     const bundleId = seedBundle();
     const candidate = "mock/cand-prov";
     for (let i = 0; i < 3; i++) {
@@ -92,30 +221,35 @@ describe("eligibility rules (plans/11 §1.4)", () => {
         `INSERT INTO bundle_run_scores (
           id, run_id, bundle_id, candidate_model_id, complete,
           category_scores_json, overall_score, total_cost_usd, avg_latency_ms, created_at
-        ) VALUES (?, ?, ?, ?, 1, '{}', ?, 0.1, 100, ?)`,
-      ).run(randomUUID(), runId, bundleId, candidate, 7 + i * 0.1, Date.now());
+        ) VALUES (?, ?, ?, ?, 1, ?, ?, 0.1, 100, ?)`,
+      ).run(
+        randomUUID(),
+        runId,
+        bundleId,
+        candidate,
+        JSON.stringify({ scores: {}, meta: { coverage: 1, penalized_count: 0, excluded_count: 0, partial_panel_count: 0 } }),
+        7 + i * 0.1,
+        Date.now(),
+      );
     }
 
-    const after2 = () => {
-      // Temporarily hide the 3rd run
-      prepare(
-        `UPDATE bundle_run_scores SET complete = 0 WHERE candidate_model_id = ?`,
-      ).run(candidate);
-      prepare(
-        `UPDATE bundle_run_scores SET complete = 1 WHERE candidate_model_id = ?
-         AND rowid IN (SELECT rowid FROM bundle_run_scores WHERE candidate_model_id = ? LIMIT 2)`,
-      ).run(candidate, candidate);
-      return queryLeaderboard("mini-benchmark-v1").rows.find(
-        (r) => r.model_id === candidate,
-      );
-    };
+    // Hide the 3rd run by nulling overall_score
+    prepare(
+      `UPDATE bundle_run_scores SET overall_score = NULL WHERE candidate_model_id = ?`,
+    ).run(candidate);
+    prepare(
+      `UPDATE bundle_run_scores SET overall_score = 7.0 WHERE candidate_model_id = ?
+       AND rowid IN (SELECT rowid FROM bundle_run_scores WHERE candidate_model_id = ? LIMIT 2)`,
+    ).run(candidate, candidate);
 
-    const provisional = after2();
+    const provisional = queryLeaderboard("mini-benchmark-v1").rows.find(
+      (r) => r.model_id === candidate,
+    );
     expect(provisional?.provisional).toBe(true);
     expect(provisional?.complete_runs).toBe(2);
 
     prepare(
-      `UPDATE bundle_run_scores SET complete = 1 WHERE candidate_model_id = ?`,
+      `UPDATE bundle_run_scores SET overall_score = 7.2 WHERE candidate_model_id = ? AND overall_score IS NULL`,
     ).run(candidate);
     const established = queryLeaderboard("mini-benchmark-v1").rows.find(
       (r) => r.model_id === candidate,
@@ -125,7 +259,6 @@ describe("eligibility rules (plans/11 §1.4)", () => {
   });
 
   it("judged-bad garbage can still be a real (low) complete score", () => {
-    // Distinction lock: low score ≠ incomplete.
     const bundleId = seedBundle();
     const runId = randomUUID();
     const candidate = "mock/cand-bad";

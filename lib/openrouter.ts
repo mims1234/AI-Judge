@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { getDb, prepare } from "@/lib/db";
+import { isEnvApiKeyFallbackAllowed } from "@/lib/env";
 import { OpenRouterModelSchema } from "@/lib/schemas";
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -75,6 +76,8 @@ export interface StreamChatParams {
   deadlineMs?: number;
   /** When true, allow retry after partial deltas (judge calls). */
   allowRetryAfterPartial?: boolean;
+  /** Explicit OpenRouter key (BYOK). Falls back to env in non-production. */
+  apiKey?: string | null;
 }
 
 export interface StreamChatResult {
@@ -98,10 +101,21 @@ type GlobalOr = {
 
 const g = globalThis as typeof globalThis & GlobalOr;
 
-function getApiKey(): string | null {
+function readEnvApiKey(): string | null {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key || !key.trim()) return null;
   return key.trim();
+}
+
+/**
+ * Resolve the OpenRouter key for a call.
+ * Precedence: explicit user key → env key (only in AI_JUDGE_MODE=dev, or
+ * when mode is unset and NODE_ENV !== "production").
+ */
+export function resolveApiKey(userKey?: string | null): string | null {
+  if (userKey && userKey.trim()) return userKey.trim();
+  if (isEnvApiKeyFallbackAllowed()) return readEnvApiKey();
+  return null;
 }
 
 function getBaseUrl(): string {
@@ -109,8 +123,14 @@ function getBaseUrl(): string {
   return (process.env.OPENROUTER_BASE_URL || DEFAULT_BASE).replace(/\/$/, "");
 }
 
-export function hasApiKey(): boolean {
-  return getApiKey() !== null;
+/** True when an env key is available for dev convenience (Settings badge). */
+export function hasServerKey(): boolean {
+  return isEnvApiKeyFallbackAllowed() && readEnvApiKey() !== null;
+}
+
+/** True when a key can be resolved (user and/or non-prod env). */
+export function hasApiKey(userKey?: string | null): boolean {
+  return resolveApiKey(userKey) !== null;
 }
 
 function attributionHeaders(apiKey: string): Record<string, string> {
@@ -122,8 +142,10 @@ function attributionHeaders(apiKey: string): Record<string, string> {
   };
 }
 
-export async function checkKeyStatus(): Promise<KeyStatus> {
-  const key = getApiKey();
+export async function checkKeyStatus(
+  userKey?: string | null,
+): Promise<KeyStatus> {
+  const key = resolveApiKey(userKey);
   if (!key) return { state: "missing" };
 
   const res = await fetch(`${getBaseUrl()}/auth/key`, {
@@ -240,10 +262,15 @@ function cacheMeta(rows: ReturnType<typeof readCacheRows>): {
   return { fetched_at, models: rows.map(rowToCatalogModel) };
 }
 
-async function fetchAndUpsertCatalog(): Promise<CatalogResult> {
-  const key = getApiKey();
+async function fetchAndUpsertCatalog(
+  userKey?: string | null,
+): Promise<CatalogResult> {
+  const key = resolveApiKey(userKey);
   if (!key) {
-    throw new OpenRouterError("missing_key", "OPENROUTER_API_KEY is missing");
+    throw new OpenRouterError(
+      "missing_key",
+      "OpenRouter API key is missing — add one in Settings",
+    );
   }
 
   const res = await fetch(`${getBaseUrl()}/models`, {
@@ -316,9 +343,10 @@ async function fetchAndUpsertCatalog(): Promise<CatalogResult> {
   };
 }
 
-function startBackgroundRefresh(): void {
+function startBackgroundRefresh(userKey?: string | null): void {
   if (g.__aiJudgeOrRefresh) return;
-  g.__aiJudgeOrRefresh = fetchAndUpsertCatalog()
+  if (!resolveApiKey(userKey)) return;
+  g.__aiJudgeOrRefresh = fetchAndUpsertCatalog(userKey)
     .catch((err) => {
       console.warn("[openrouter] background catalog refresh failed", err);
       return null as unknown as CatalogResult;
@@ -328,12 +356,29 @@ function startBackgroundRefresh(): void {
     }) as Promise<CatalogResult>;
 }
 
+/**
+ * Cached catalog only — never hits the network.
+ * Used by RSC pages in production when no server key is available.
+ */
+export function getCachedCatalog(): CatalogResult | null {
+  const meta = cacheMeta(readCacheRows());
+  if (!meta) return null;
+  const age = Date.now() - meta.fetched_at;
+  return {
+    source: age < CACHE_TTL_MS ? "cache" : "stale",
+    fetched_at: new Date(meta.fetched_at).toISOString(),
+    models: meta.models,
+  };
+}
+
 export async function getModelCatalog(opts?: {
   forceRefresh?: boolean;
+  apiKey?: string | null;
 }): Promise<CatalogResult> {
   const rows = readCacheRows();
   const meta = cacheMeta(rows);
   const now = Date.now();
+  const apiKey = opts?.apiKey;
 
   if (meta && !opts?.forceRefresh) {
     const age = now - meta.fetched_at;
@@ -344,8 +389,8 @@ export async function getModelCatalog(opts?: {
         models: meta.models,
       };
     }
-    // Stale-while-revalidate
-    startBackgroundRefresh();
+    // Stale-while-revalidate (skipped when no resolvable key)
+    startBackgroundRefresh(apiKey);
     return {
       source: "stale",
       fetched_at: new Date(meta.fetched_at).toISOString(),
@@ -355,7 +400,7 @@ export async function getModelCatalog(opts?: {
 
   if (opts?.forceRefresh && meta) {
     try {
-      return await fetchAndUpsertCatalog();
+      return await fetchAndUpsertCatalog(apiKey);
     } catch {
       return {
         source: "stale",
@@ -365,9 +410,24 @@ export async function getModelCatalog(opts?: {
     }
   }
 
-  // Empty cache — fetch synchronously
+  // Empty cache — fetch synchronously when a key is available; otherwise fail
+  // so callers can fall back to cache-only / EmptyState.
+  if (!resolveApiKey(apiKey)) {
+    if (meta) {
+      return {
+        source: "stale",
+        fetched_at: new Date(meta.fetched_at).toISOString(),
+        models: meta.models,
+      };
+    }
+    throw new OpenRouterError(
+      "missing_key",
+      "OpenRouter API key is missing — add one in Settings",
+    );
+  }
+
   try {
-    return await fetchAndUpsertCatalog();
+    return await fetchAndUpsertCatalog(apiKey);
   } catch (err) {
     if (meta) {
       return {
@@ -593,7 +653,11 @@ async function parseSseStream(
       const { done, value } = await reader.read();
       if (done) break;
       lastByteAt = Date.now();
-      buffer += decoder.decode(value, { stream: true });
+      // Normalize CRLF (and bare CR) so frame splits work for \r\n\r\n SSE.
+      buffer += decoder
+        .decode(value, { stream: true })
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n");
       let sep: number;
       while ((sep = buffer.indexOf("\n\n")) !== -1) {
         const frame = buffer.slice(0, sep);
@@ -635,9 +699,12 @@ async function streamChatOnce(
     stripResponseFormat?: boolean;
   } = {},
 ): Promise<StreamChatResult & { deliveredDeltas: boolean }> {
-  const key = getApiKey();
+  const key = resolveApiKey(params.apiKey);
   if (!key) {
-    throw new OpenRouterError("missing_key", "OPENROUTER_API_KEY is missing");
+    throw new OpenRouterError(
+      "missing_key",
+      "OpenRouter API key is missing — add one in Settings",
+    );
   }
 
   const degraded: string[] = [];

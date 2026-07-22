@@ -89,6 +89,7 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
     status: RunSnapshot["task_results"][number]["status"];
     raw_output: string | null;
     finish_reason: string | null;
+    request_hash: string | null;
     prompt_tokens: number | null;
     completion_tokens: number | null;
     cost_usd: number | null;
@@ -96,33 +97,73 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
     error: string | null;
   }>;
 
-  const taskResults = taskRows.map((tr) => {
-    const validatorResults = (
-      prepare(
-        `SELECT validator, passed, expected_json, actual_json, details
-         FROM validator_results WHERE task_result_id = ?`,
-      ).all(tr.id) as Array<{
-        validator: string;
-        passed: number;
-        expected_json: string | null;
-        actual_json: string | null;
-        details: string;
-      }>
-    ).map((v) => ({
-      validator: v.validator,
-      passed: v.passed === 1,
-      details: v.details,
-      ...(v.expected_json ? { expected: v.expected_json } : {}),
-      ...(v.actual_json ? { actual: v.actual_json } : {}),
-    }));
+  // Static bundle task content for the cell detail page — cheap join, deduped.
+  const taskContentRows = prepare(
+    `SELECT DISTINCT t.id, t.category, t.task_body, t.token_limit
+     FROM tasks t JOIN task_results tr ON tr.task_id = t.id
+     WHERE tr.run_id = ?
+     ORDER BY t.category`,
+  ).all(id) as Array<{
+    id: string;
+    category: Category;
+    task_body: string;
+    token_limit: number;
+  }>;
 
-    const judgments = (
-      prepare(
-        `SELECT * FROM judgment_attempts
-         WHERE task_result_id = ? AND is_final = 1
-         ORDER BY created_at ASC`,
-      ).all(tr.id) as Array<Record<string, unknown>>
-    ).map((j) => {
+  // Batch per-task child rows — avoids 3N round-trips on hydrate/reconnect.
+  const validatorsByTr = new Map<
+    string,
+    Array<{
+      validator: string;
+      passed: boolean;
+      details: string;
+      expected?: string;
+      actual?: string;
+    }>
+  >();
+  const judgmentsByTr = new Map<
+    string,
+    RunSnapshot["task_results"][number]["judgments"]
+  >();
+  const scoreByTr = new Map<
+    string,
+    { median_overall: number; disagreement: number }
+  >();
+
+  if (taskRows.length > 0) {
+    const trIds = taskRows.map((tr) => tr.id);
+    const placeholders = trIds.map(() => "?").join(",");
+
+    const validatorRows = prepare(
+      `SELECT task_result_id, validator, passed, expected_json, actual_json, details
+       FROM validator_results WHERE task_result_id IN (${placeholders})`,
+    ).all(...trIds) as Array<{
+      task_result_id: string;
+      validator: string;
+      passed: number;
+      expected_json: string | null;
+      actual_json: string | null;
+      details: string;
+    }>;
+    for (const v of validatorRows) {
+      const list = validatorsByTr.get(v.task_result_id) ?? [];
+      list.push({
+        validator: v.validator,
+        passed: v.passed === 1,
+        details: v.details,
+        ...(v.expected_json ? { expected: v.expected_json } : {}),
+        ...(v.actual_json ? { actual: v.actual_json } : {}),
+      });
+      validatorsByTr.set(v.task_result_id, list);
+    }
+
+    const judgmentRows = prepare(
+      `SELECT * FROM judgment_attempts
+       WHERE task_result_id IN (${placeholders}) AND is_final = 1
+       ORDER BY created_at ASC`,
+    ).all(...trIds) as Array<Record<string, unknown>>;
+    for (const j of judgmentRows) {
+      const trId = String(j.task_result_id);
       let feedback: Record<string, unknown> | null = null;
       if (typeof j.parsed_json === "string") {
         try {
@@ -131,7 +172,7 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
           feedback = null;
         }
       }
-      return {
+      const mapped = {
         judge_model_id: String(j.judge_model_id),
         parse_status: j.parse_status as "first_try" | "repaired" | "invalid",
         is_substitute: Number(j.is_substitute) === 1,
@@ -144,8 +185,10 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
                 honesty: Number(j.score_honesty),
               }
             : null,
-        claimed_overall: j.claimed_overall != null ? Number(j.claimed_overall) : null,
-        computed_overall: j.server_overall != null ? Number(j.server_overall) : null,
+        claimed_overall:
+          j.claimed_overall != null ? Number(j.claimed_overall) : null,
+        computed_overall:
+          j.server_overall != null ? Number(j.server_overall) : null,
         verdict: (j.verdict as "pass" | "partial_pass" | "fail" | null) ?? null,
         what_was_good: Array.isArray(feedback?.what_was_good)
           ? (feedback.what_was_good as string[])
@@ -170,11 +213,29 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
             ? feedback.one_best_improvement
             : "",
       };
-    });
+      const list = judgmentsByTr.get(trId) ?? [];
+      list.push(mapped);
+      judgmentsByTr.set(trId, list);
+    }
 
-    const score = prepare(
-      `SELECT median_overall, disagreement FROM task_scores WHERE task_result_id = ?`,
-    ).get(tr.id) as { median_overall: number; disagreement: number } | undefined;
+    const scoreRows = prepare(
+      `SELECT task_result_id, median_overall, disagreement
+       FROM task_scores WHERE task_result_id IN (${placeholders})`,
+    ).all(...trIds) as Array<{
+      task_result_id: string;
+      median_overall: number;
+      disagreement: number;
+    }>;
+    for (const s of scoreRows) {
+      scoreByTr.set(s.task_result_id, {
+        median_overall: s.median_overall,
+        disagreement: s.disagreement,
+      });
+    }
+  }
+
+  const taskResults = taskRows.map((tr) => {
+    const score = scoreByTr.get(tr.id);
 
     let error: { kind: "infra_failure" | "judging_failure"; message: string } | null =
       null;
@@ -199,6 +260,7 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
       status: tr.status,
       raw_output: tr.raw_output,
       finish_reason: tr.finish_reason,
+      request_hash: tr.request_hash,
       tokens:
         tr.prompt_tokens != null
           ? { prompt: tr.prompt_tokens, completion: tr.completion_tokens ?? 0 }
@@ -206,8 +268,8 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
       cost_usd: tr.cost_usd,
       latency_ms: tr.latency_ms,
       error,
-      validator_results: validatorResults,
-      judgments,
+      validator_results: validatorsByTr.get(tr.id) ?? [],
+      judgments: judgmentsByTr.get(tr.id) ?? [],
       aggregate: score
         ? {
             median_overall: score.median_overall,
@@ -253,5 +315,6 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
     panels: [...panelMap.values()],
     task_results: taskResults,
     bundle_run_score: bundleRunScore,
+    tasks: taskContentRows,
   };
 }

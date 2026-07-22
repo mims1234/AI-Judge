@@ -1,5 +1,19 @@
 import type { ValidatorFinding } from "@/lib/validators/common";
 
+function skippedMath(
+  validator: string,
+  expected_json: string,
+): ValidatorFinding {
+  return {
+    validator,
+    passed: false,
+    expected_json,
+    actual_json: null,
+    details: "skipped: unparseable JSON",
+    skipped: true,
+  };
+}
+
 /**
  * Pinned math ground truth — the ONLY correct answers.
  * free = 552, paid = 432. Derived nowhere else.
@@ -32,27 +46,9 @@ export function validateMathGroundTruth(
 
   if (!parsed) {
     return [
-      {
-        validator: "math_free_count",
-        passed: false,
-        expected_json: JSON.stringify(truth.free),
-        actual_json: null,
-        details: "skipped: unparseable JSON",
-      },
-      {
-        validator: "math_paid_count",
-        passed: false,
-        expected_json: JSON.stringify(truth.paid),
-        actual_json: null,
-        details: "skipped: unparseable JSON",
-      },
-      {
-        validator: "math_ground_truth",
-        passed: false,
-        expected_json: JSON.stringify(truth),
-        actual_json: null,
-        details: "skipped: unparseable JSON",
-      },
+      skippedMath("math_free_count", JSON.stringify(truth.free)),
+      skippedMath("math_paid_count", JSON.stringify(truth.paid)),
+      skippedMath("math_ground_truth", JSON.stringify(truth)),
     ];
   }
 

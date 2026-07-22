@@ -4,8 +4,12 @@ import type { PickerModel } from "@/components/models/ModelPicker";
 import { RunWizard } from "@/components/run/RunWizard";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { buildDemoCatalog } from "@/lib/mocks/catalog";
-import { getModelCatalog } from "@/lib/openrouter";
-import { getAppSettings } from "@/lib/server/appSettings";
+import {
+  getCachedCatalog,
+  getModelCatalog,
+  hasServerKey,
+} from "@/lib/openrouter";
+import { getAppSettings, getKeyStatusInfo } from "@/lib/server/appSettings";
 import {
   getBundleTasks,
   listBundles,
@@ -68,10 +72,13 @@ export default async function RunPage({ searchParams }: { searchParams: SearchPa
 
   const catalog = isDemo
     ? { models: buildDemoCatalog() }
-    : await getModelCatalog().catch(() => null);
+    : hasServerKey()
+      ? await getModelCatalog().catch(() => getCachedCatalog())
+      : getCachedCatalog();
 
   const models = catalog ? strip(catalog.models) : [];
   const settings = getAppSettings();
+  const keyStatus = getKeyStatusInfo();
 
   return (
     <Suspense fallback={<WizardFallback />}>
@@ -81,6 +88,7 @@ export default async function RunPage({ searchParams }: { searchParams: SearchPa
         models={models}
         settings={settings}
         isDemo={isDemo}
+        serverConfigured={keyStatus.serverConfigured}
       />
     </Suspense>
   );

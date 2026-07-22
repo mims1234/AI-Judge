@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { buildCellHref } from "@/lib/cellRef";
 import { cn } from "@/lib/cn";
 import { formatScore } from "@/lib/format";
 import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
@@ -25,12 +27,9 @@ function shortName(id: string): string {
   return slash === -1 ? id : id.slice(slash + 1);
 }
 
-/** Candidates × categories matrix with keyboard nav (plans/09 §2.3). */
-export function ArenaGrid({
-  onOpenCell,
-}: {
-  onOpenCell: (candidateModelId: string, category: Category) => void;
-}) {
+/** Candidates × categories matrix with keyboard nav (plans/09 §2.3, plans/15 §A1). */
+export function ArenaGrid() {
+  const runId = useRunStore((s) => s.run.id);
   const candidates = useRunStore((s) => s.candidates);
   const cells = useRunStore((s) => s.cells);
   const runStatus = useRunStore((s) => s.run.status);
@@ -119,10 +118,9 @@ export function ArenaGrid({
                 const cell = cells.get(cellKey(cand, cat));
                 return (
                   <li key={cat}>
-                    <button
-                      type="button"
+                    <Link
+                      href={buildCellHref(runId, cand, cat)}
                       data-testid={`cell-${cand}-${cat}`}
-                      onClick={() => onOpenCell(cand, cat)}
                       className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm hover:bg-ink-800"
                     >
                       <span className="text-dim">{CAT_SHORT[cat]}</span>
@@ -131,7 +129,7 @@ export function ArenaGrid({
                           ? formatScore(cell.medianAcrossTrials)
                           : "·"}
                       </span>
-                    </button>
+                    </Link>
                   </li>
                 );
               })}
@@ -195,9 +193,9 @@ export function ArenaGrid({
                     category={cat}
                     runTerminal={terminal}
                     focused={focused}
+                    href={buildCellHref(runId, cand, cat)}
                     tabIndex={focused ? 0 : -1}
                     onFocus={() => setFocus({ row, col })}
-                    onSelect={() => onOpenCell(cand, cat)}
                   />
                 );
               })}

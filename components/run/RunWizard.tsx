@@ -15,6 +15,7 @@ import {
 } from "@/components/run/WizardStepper";
 import { Button } from "@/components/ui/Button";
 import { DemoBanner } from "@/components/ui/DemoBanner";
+import { apiFetch } from "@/lib/client/apiKey";
 import {
   clearRunDraft,
   defaultRunDraft,
@@ -25,6 +26,7 @@ import {
 } from "@/lib/client/runDraft";
 import { DEFAULT_BUNDLE_SLUG } from "@/lib/bundles/defaults";
 import type { AppSettings } from "@/lib/settings";
+import { KeyGate } from "@/components/settings/KeyGate";
 
 export type RunWizardProps = {
   bundles: BundleOption[];
@@ -32,6 +34,7 @@ export type RunWizardProps = {
   models: PickerModel[];
   settings: AppSettings;
   isDemo: boolean;
+  serverConfigured: boolean;
 };
 
 function defaultBundleId(bundles: BundleOption[]): string | null {
@@ -62,6 +65,7 @@ export function RunWizard({
   models,
   settings,
   isDemo,
+  serverConfigured,
 }: RunWizardProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -176,7 +180,7 @@ export function RunWizard({
     setLaunching(true);
     setLaunchError(null);
     try {
-      const res = await fetch("/api/runs", {
+      const res = await apiFetch("/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -193,8 +197,14 @@ export function RunWizard({
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as {
-          error?: { message?: string };
+          error?: { message?: string; code?: string };
         } | null;
+        if (body?.error?.code === "NEEDS_KEY") {
+          throw new Error(
+            body.error.message ??
+              "Add your OpenRouter API key in Settings before launching a run.",
+          );
+        }
         throw new Error(body?.error?.message ?? `Launch failed (HTTP ${res.status})`);
       }
       const data = (await res.json()) as { run_id: string };
@@ -232,6 +242,12 @@ export function RunWizard({
           className="mt-4"
           note="Demo catalog — launch still hits the real API (needs a key)."
         />
+      )}
+
+      {!serverConfigured && (
+        <div className="mt-4">
+          <KeyGate serverConfigured={serverConfigured} variant="banner" />
+        </div>
       )}
 
       <div className="mt-6">

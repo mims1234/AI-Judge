@@ -4,12 +4,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
+import {
+  API_KEY_CHANGED_EVENT,
+  hasStoredApiKey,
+} from "@/lib/client/apiKey";
 import { StatusDot } from "@/components/ui/StatusDot";
 
 const NAV_LINKS = [
   { href: "/models", label: "Models" },
   { href: "/bundles", label: "Bundles" },
   { href: "/runs", label: "Runs", match: ["/run", "/runs"] },
+  { href: "/playground", label: "Playground", match: ["/playground"] },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/compare", label: "Compare" },
   { href: "/judges", label: "Judges" },
@@ -54,15 +59,34 @@ function linkClasses(active: boolean): string {
 type RunningRun = { id: string };
 
 /** Top nav: wordmark, route links, run-in-progress indicator (polled 30s). */
-export function AppShell() {
+export function AppShell({
+  serverConfigured = false,
+}: {
+  serverConfigured?: boolean;
+}) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeRun, setActiveRun] = useState<RunningRun | null>(null);
+  const [needsBrowserKey, setNeedsBrowserKey] = useState(false);
 
   // Close the mobile menu on navigation.
   useEffect(() => {
     setMenuOpen(false);
   }, [pathname]);
+
+  // BYOK nav hint — only when neither browser key nor dev env fallback exists.
+  useEffect(() => {
+    const sync = () => {
+      setNeedsBrowserKey(!serverConfigured && !hasStoredApiKey());
+    };
+    sync();
+    window.addEventListener(API_KEY_CHANGED_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(API_KEY_CHANGED_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, [serverConfigured]);
 
   // Run-in-progress indicator — cheap poll, silent on failure.
   useEffect(() => {
@@ -98,7 +122,7 @@ export function AppShell() {
           <BrandMark />
         </Link>
 
-        <nav aria-label="Primary" className="hidden items-center gap-1 md:flex">
+        <nav aria-label="Primary" className="hidden items-center gap-1 lg:flex">
           {NAV_LINKS.map((link) => (
             <Link
               key={link.href}
@@ -112,6 +136,16 @@ export function AppShell() {
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
+          {needsBrowserKey && pathname !== "/settings" && (
+            <Link
+              href="/settings"
+              className="flex items-center gap-2 rounded-sm border border-warn-400/40 bg-warn-900/50 px-2.5 py-1.5 text-xs text-warn-400 transition-colors duration-150 hover:border-warn-400/70"
+            >
+              <StatusDot tone="error" />
+              Add API key
+            </Link>
+          )}
+
           {activeRun && (
             <Link
               href={`/runs/${activeRun.id}`}
@@ -124,7 +158,7 @@ export function AppShell() {
 
           <button
             type="button"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-body hover:bg-ink-800 hover:text-bright md:hidden"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-body hover:bg-ink-800 hover:text-bright lg:hidden"
             aria-expanded={menuOpen}
             aria-label={menuOpen ? "Close navigation menu" : "Open navigation menu"}
             onClick={() => setMenuOpen((v) => !v)}
@@ -146,7 +180,7 @@ export function AppShell() {
       {menuOpen && (
         <nav
           aria-label="Mobile"
-          className="border-t border-line-subtle bg-ink-900 px-6 py-3 md:hidden"
+          className="border-t border-line-subtle bg-ink-900 px-6 py-3 lg:hidden"
           onKeyDown={onMenuKeyDown}
         >
           <div className="flex flex-col gap-1">

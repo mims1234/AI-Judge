@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Input";
+import { apiFetch } from "@/lib/client/apiKey";
 import type { BundleRow } from "@/lib/bundles/types";
 
 export type CompareChipsProps = {
@@ -66,7 +67,7 @@ export function CompareChips({
     }
 
     setLoading(true);
-    fetch("/api/models")
+    apiFetch("/api/models")
       .then((r) => r.json())
       .then((data: { models?: PickerModel[] }) => {
         if (cancelled) return;

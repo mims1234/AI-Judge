@@ -1,5 +1,10 @@
-import { apiError } from "@/lib/api-helpers";
+import {
+  apiError,
+  getKeyFromRequest,
+  needsKeyError,
+} from "@/lib/api-helpers";
 import { prepare } from "@/lib/db";
+import { hasApiKey } from "@/lib/openrouter";
 import { getRunEngine, InvalidStateError } from "@/lib/run-engine";
 
 export const runtime = "nodejs";
@@ -7,8 +12,15 @@ export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string; taskId: string }> };
 
-export async function POST(_request: Request, ctx: Params) {
+export async function POST(request: Request, ctx: Params) {
   try {
+    const userKey = getKeyFromRequest(request);
+    if (!hasApiKey(userKey)) {
+      return needsKeyError(
+        "Add your OpenRouter API key in Settings before retrying a task.",
+      );
+    }
+
     const { id, taskId } = await ctx.params;
     const run = prepare(`SELECT id, status FROM runs WHERE id = ?`).get(id) as
       | { id: string; status: string }
@@ -44,6 +56,7 @@ export async function POST(_request: Request, ctx: Params) {
       );
     }
 
+    getRunEngine().bindApiKey(id, userKey);
     getRunEngine().retryTask(id, taskId);
     return Response.json(
       {

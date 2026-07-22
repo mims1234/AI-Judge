@@ -265,6 +265,17 @@ dialog::backdrop {
   }
 }
 
+@keyframes panel-enter {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 /* Motion utility classes (consumed by class, per plan 07 §4) */
 
 .stream-cursor {
@@ -302,11 +313,15 @@ dialog::backdrop {
   animation: modal-in 200ms ease-out both;
 }
 
+.panel-enter {
+  animation: panel-enter 320ms ease-out both;
+  animation-delay: calc(var(--enter-index, 0) * 70ms);
+}
+
 .cell-shimmer {
   position: relative;
   overflow: hidden;
-}
-.cell-shimmer::after {
+}.cell-shimmer::after {
   content: "";
   position: absolute;
   inset: auto 0 0 0;

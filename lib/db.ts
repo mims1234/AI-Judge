@@ -416,11 +416,100 @@ function migration003(db: Database): void {
   }
 }
 
+/**
+ * Chat playground (plans/16 §B3): free multi-turn chat sessions judged as a
+ * whole. Category is decided by judge consensus at first judging and locks;
+ * re-judging appends a new round to chat_judgments.
+ */
+function migration004(db: Database): void {
+  db.exec(`
+    CREATE TABLE chat_sessions (
+      id                  TEXT PRIMARY KEY,
+      candidate_model_id  TEXT NOT NULL,
+      judge_pool_json     TEXT NOT NULL,
+      status              TEXT NOT NULL DEFAULT 'active'
+                          CHECK (status IN ('active','streaming','judging',
+                                            'judged','error')),
+      category            TEXT
+                          CHECK (category IS NULL OR category IN
+                            ('roleplay','coding','math','research','marketing',
+                             'poster','story','judging','general')),
+      median_score        REAL,
+      disagreement        REAL,
+      judging_rounds      INTEGER NOT NULL DEFAULT 0,
+      total_cost_usd      REAL NOT NULL DEFAULT 0,
+      error               TEXT,
+      last_event_id       INTEGER NOT NULL DEFAULT 0,
+      created_at          INTEGER NOT NULL,
+      finished_at         INTEGER
+    );
+
+    CREATE TABLE chat_messages (
+      id                TEXT PRIMARY KEY,
+      session_id        TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+      role              TEXT NOT NULL CHECK (role IN ('user','assistant')),
+      content           TEXT NOT NULL,
+      prompt_tokens     INTEGER,
+      completion_tokens INTEGER,
+      cost_usd          REAL,
+      latency_ms        INTEGER,
+      created_at        INTEGER NOT NULL
+    );
+
+    CREATE TABLE chat_judgments (
+      id                  TEXT PRIMARY KEY,
+      session_id          TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+      round               INTEGER NOT NULL,
+      judge_model_id      TEXT NOT NULL,
+      predicted_category  TEXT
+                          CHECK (predicted_category IS NULL OR predicted_category IN
+                            ('roleplay','coding','math','research','marketing',
+                             'poster','story','judging','general')),
+      category_confidence REAL,
+      category_rationale  TEXT,
+      raw_output          TEXT,
+      parsed_json         TEXT,
+      parse_status        TEXT NOT NULL
+                          CHECK (parse_status IN ('first_try','repaired','invalid')),
+      score_correctness   REAL,
+      score_compliance    REAL,
+      score_quality       REAL,
+      score_honesty       REAL,
+      claimed_overall     REAL,
+      server_overall      REAL,
+      verdict             TEXT CHECK (verdict IN ('pass','partial_pass','fail')),
+      prompt_tokens       INTEGER,
+      completion_tokens   INTEGER,
+      cost_usd            REAL,
+      latency_ms          INTEGER,
+      created_at          INTEGER NOT NULL,
+      UNIQUE (session_id, round, judge_model_id)
+    );
+
+    CREATE TABLE chat_events (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id  TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+      type        TEXT NOT NULL,
+      payload     TEXT NOT NULL,
+      created_at  INTEGER NOT NULL
+    );
+
+    CREATE INDEX idx_chat_sessions_candidate ON chat_sessions(candidate_model_id, category);
+    CREATE INDEX idx_chat_sessions_status    ON chat_sessions(status);
+    CREATE INDEX idx_chat_sessions_finished  ON chat_sessions(finished_at);
+    CREATE INDEX idx_chat_messages_session   ON chat_messages(session_id, created_at);
+    CREATE INDEX idx_chat_judgments_session  ON chat_judgments(session_id, round);
+    CREATE INDEX idx_chat_judgments_judge    ON chat_judgments(judge_model_id);
+    CREATE INDEX idx_chat_events_session     ON chat_events(session_id, id);
+  `);
+}
+
 /** Append-only migration list. Never edit an applied migration — add a new one. */
 const MIGRATIONS: Migration[] = [
   { id: 1, name: "001_initial_schema", up: migration001 },
   { id: 2, name: "002_seed_mini_benchmark_v1", up: migration002 },
   { id: 3, name: "003_seed_keel_v1", up: migration003 },
+  { id: 4, name: "004_chat_playground", up: migration004 },
 ];
 
 function runMigrations(db: Database): void {

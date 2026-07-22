@@ -1,56 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CATEGORY_ORDER, type Category, type RunSnapshot } from "@/lib/schemas";
+import { buildCellHref } from "@/lib/cellRef";
+import type { Category, RunSnapshot } from "@/lib/schemas";
 import { isTerminal } from "@/lib/client/runStore";
 import { RunStoreProvider, useRunStore } from "@/lib/client/useRunStream";
 import { ArenaGrid } from "@/components/arena/ArenaGrid";
-import { CellDrawer } from "@/components/arena/CellDrawer";
 import { RunHeader } from "@/components/arena/RunHeader";
 import { RunReport } from "@/components/report/RunReport";
 import { Tabs } from "@/components/ui/Tabs";
-
-/**
- * Parse ?cell= — OpenRouter ids may contain ":" (e.g. cohere/foo:free),
- * so category/trial are taken from the right, not by a naive split.
- * Formats: `<candidate>:<category>` | `<candidate>:<category>:<trialIndex>`
- */
-function parseCellParam(raw: string | null): {
-  candidate: string | null;
-  category: Category | null;
-  trial: number | null;
-} {
-  const empty = { candidate: null, category: null, trial: null };
-  if (!raw) return empty;
-  const parts = raw.split(":");
-  if (parts.length < 2) return empty;
-
-  // `<candidate>:<category>:<trial>` — trial is a non-negative integer suffix
-  if (parts.length >= 3) {
-    const trialRaw = parts[parts.length - 1]!;
-    const categoryRaw = parts[parts.length - 2]!;
-    if (
-      /^\d+$/.test(trialRaw) &&
-      CATEGORY_ORDER.includes(categoryRaw as Category)
-    ) {
-      const candidate = parts.slice(0, -2).join(":");
-      if (!candidate) return empty;
-      return {
-        candidate,
-        category: categoryRaw as Category,
-        trial: Number(trialRaw),
-      };
-    }
-  }
-
-  // `<candidate>:<category>` — category is a known enum at the end
-  const categoryRaw = parts[parts.length - 1]!;
-  if (!CATEGORY_ORDER.includes(categoryRaw as Category)) return empty;
-  const candidate = parts.slice(0, -1).join(":");
-  if (!candidate) return empty;
-  return { candidate, category: categoryRaw as Category, trial: null };
-}
 
 function WorkbenchInner({
   runId,
@@ -66,12 +25,7 @@ function WorkbenchInner({
   const terminal = isTerminal(status);
   const [reportSnapshot, setReportSnapshot] = useState(initialSnapshot);
 
-  const cellParam = searchParams.get("cell");
   const view = searchParams.get("view") === "report" ? "report" : "arena";
-  const { candidate, category, trial } = useMemo(
-    () => parseCellParam(cellParam),
-    [cellParam],
-  );
 
   useEffect(() => {
     if (view !== "report" || !terminal) return;
@@ -101,24 +55,9 @@ function WorkbenchInner({
     [router, runId, searchParams],
   );
 
+  // Report matrix cells deep-link into the cell detail page (plans/15 §A1).
   const openCell = (cand: string, cat: Category) => {
-    setParams((p) => {
-      p.set("cell", `${cand}:${cat}`);
-      p.delete("view");
-    });
-  };
-
-  const closeCell = () => {
-    setParams((p) => {
-      p.delete("cell");
-    });
-  };
-
-  const setTrial = (t: number) => {
-    if (!candidate || !category) return;
-    setParams((p) => {
-      p.set("cell", `${candidate}:${category}:${t}`);
-    });
+    router.push(buildCellHref(runId, cand, cat));
   };
 
   const eligibilityBanner =
@@ -126,8 +65,8 @@ function WorkbenchInner({
       ? "This run is not leaderboard-eligible: cancelled before completion."
       : status === "incomplete"
         ? notice?.code === "BUDGET_CAP_REACHED"
-          ? "This run is not leaderboard-eligible: incomplete — budget cap reached."
-          : "This run is not leaderboard-eligible: incomplete — infrastructure failures or budget cap."
+          ? "Included on the leaderboard with reduced coverage — budget cap reached. Infra failures score 0; judging failures are excluded (not penalized)."
+          : "Included on the leaderboard with penalties / reduced coverage. Infra failures score 0 (retry to replace); judging failures are excluded."
         : null;
 
   return (
@@ -167,21 +106,13 @@ function WorkbenchInner({
           onOpenCell={openCell}
         />
       ) : (
-        <ArenaGrid onOpenCell={openCell} />
+        <ArenaGrid />
       )}
-
-      <CellDrawer
-        candidateModelId={candidate}
-        category={category}
-        trialFromUrl={trial}
-        onClose={closeCell}
-        onTrialChange={setTrial}
-      />
     </div>
   );
 }
 
-/** Client root: RunStore provider + header/grid/drawer (plans/09 §2). */
+/** Client root: RunStore provider + header/grid (plans/09 §2, plans/15 §A1). */
 export function Workbench({
   runId,
   snapshot,

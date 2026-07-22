@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { apiError, isoFromMs, parseBody, parseQuery } from "@/lib/api-helpers";
+import {
+  apiError,
+  getKeyFromRequest,
+  isoFromMs,
+  needsKeyError,
+  parseBody,
+  parseQuery,
+} from "@/lib/api-helpers";
 import { getDb, prepare } from "@/lib/db";
 import { getCachedModel, getModelCatalog, hasApiKey } from "@/lib/openrouter";
 import { getRunEngine, selectPanels } from "@/lib/run-engine";
@@ -65,11 +72,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    if (!hasApiKey()) {
-      return apiError(
-        "NO_API_KEY",
-        503,
-        "OPENROUTER_API_KEY is not configured",
+    const userKey = getKeyFromRequest(request);
+    if (!hasApiKey(userKey)) {
+      return needsKeyError(
+        "Add your OpenRouter API key in Settings before launching a run.",
       );
     }
 
@@ -94,6 +100,8 @@ export async function POST(request: Request) {
         | { id: string; status: string }
         | undefined;
       if (existing) {
+        // Re-bind the key so a resumed idempotent run can execute after restart.
+        getRunEngine().bindApiKey(existing.id, userKey);
         return Response.json(
           {
             run_id: existing.id,
@@ -105,7 +113,7 @@ export async function POST(request: Request) {
       }
     }
 
-    await getModelCatalog();
+    await getModelCatalog({ apiKey: userKey });
     const preflight = evaluatePreflight(body);
     if (!preflight.ok || !preflight.bundle) {
       if (!preflight.bundle) {
@@ -224,7 +232,7 @@ export async function POST(request: Request) {
       }
     })();
 
-    getRunEngine().enqueue(runId);
+    getRunEngine().enqueue(runId, userKey);
 
     return Response.json(
       {

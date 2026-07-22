@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "@/lib/client/apiKey";
 import { formatBytes, formatRelativeTime } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 
@@ -21,7 +22,7 @@ export function DataCard({ stats }: { stats: DataCardStats }) {
   const refresh = async () => {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/models?refresh=1", { cache: "no-store" });
+      const res = await apiFetch("/api/models?refresh=1", { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       router.refresh();
     } catch {

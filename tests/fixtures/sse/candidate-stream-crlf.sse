@@ -1,0 +1,56 @@
+: keepalive
+
+data: {"choices":[{"delta":{"content":"{\n  \"fre"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"e_users_"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"after_mo"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"nth_1\": "},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"552,\n  \""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"paid_use"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"rs_after"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"_month_1"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"\": 432,\n"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"  \"calcu"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"lation\":"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" [\n    \""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"600-48=5"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"52\",\n   "},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" \"400-16"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"+48=432\""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"\n  ],\n  "},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"\"assumpt"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ions\": ["},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"\n    \"co"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"nverts c"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"annot ch"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"urn in m"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"onth 1\"\n"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"  ]\n}"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150,"cost":0.001}}
+
+data: [DONE]
+

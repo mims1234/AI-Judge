@@ -26,8 +26,17 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname),
-    },
+    // server-only throws on the default export; map to the react-server empty
+    // stub so node-side unit/integration tests can import lib/db etc.
+    alias: [
+      {
+        find: "server-only",
+        replacement: path.resolve(__dirname, "node_modules/server-only/empty.js"),
+      },
+      {
+        find: "@",
+        replacement: path.resolve(__dirname),
+      },
+    ],
   },
 });

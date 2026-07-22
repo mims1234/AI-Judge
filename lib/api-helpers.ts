@@ -11,11 +11,33 @@ export type ApiErrorCode =
   | "INTERNAL_ERROR"
   | "UPSTREAM_ERROR"
   | "NO_API_KEY"
+  | "NEEDS_KEY"
   | "PREFLIGHT_FAILED"
   | "BUNDLE_NOT_PUBLISHED"
   | "MODEL_UNAVAILABLE"
   | "CONTEXT_TOO_SMALL"
   | "JUDGE_POOL_TOO_SMALL";
+
+/** Header clients send with a user-supplied OpenRouter key (BYOK). */
+export const OPENROUTER_KEY_HEADER = "x-openrouter-key";
+
+/**
+ * Read optional user OpenRouter key from the request.
+ * Never log the returned value.
+ */
+export function getKeyFromRequest(request: Request): string | null {
+  const raw = request.headers.get(OPENROUTER_KEY_HEADER);
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/** 401 when no user key and no non-prod env fallback is available. */
+export function needsKeyError(
+  message = "Add your OpenRouter API key in Settings to use this feature.",
+): NextResponse {
+  return apiError("NEEDS_KEY", 401, message);
+}
 
 export function apiError(
   code: string,

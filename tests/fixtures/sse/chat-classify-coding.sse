@@ -1,0 +1,34 @@
+: keepalive
+
+data: {"choices":[{"delta":{"content":"{\"catego"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ry\":\"cod"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ing\",\"co"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"nfidence"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"\":0.92,\""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"rational"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"e\":\"User"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" asked f"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"or a Typ"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"eScript "},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"function"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" and fol"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"low-up b"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ugfix.\"}"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"usage":{"prompt_tokens":80,"completion_tokens":40,"total_tokens":120,"cost":0.0005}}
+
+data: [DONE]
+
