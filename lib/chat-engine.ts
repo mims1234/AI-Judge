@@ -6,6 +6,7 @@ import {
 } from "@/lib/chat-errors";
 import { getDb, prepare } from "@/lib/db";
 import { CHAT_CLASSIFY_PROMPT, chatRubricFor } from "@/lib/bundles/chat-rubrics";
+import { withJudgeEnglishOnly } from "@/lib/bundles/judge-language";
 import { OpenRouterError, streamChat, type StreamChatResult } from "@/lib/openrouter";
 import {
   computedOverall,
@@ -43,7 +44,20 @@ export {
  * shrinkage (same math as scoring.ts finalizeRun).
  */
 
-export class ChatStateError extends Error {}
+export class ChatStateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChatStateError";
+  }
+}
+
+/** Cross-bundle safe check (Next may load duplicate module copies). */
+export function isChatStateError(err: unknown): err is ChatStateError {
+  return (
+    err instanceof ChatStateError ||
+    (err instanceof Error && err.name === "ChatStateError")
+  );
+}
 
 /** Drop the candidate from the judge panel (backup if overlap reached storage). */
 export function effectiveChatJudgePool(
@@ -161,8 +175,20 @@ class ChatEngineImpl implements ChatEngine {
   private inFlight = new Set<string>();
   private recovered = false;
 
-  constructor() {
-    this.recover();
+  constructor(opts?: { skipRecover?: boolean }) {
+    if (!opts?.skipRecover) this.recover();
+  }
+
+  /** Preserve in-memory keys/emitters when replacing a stale HMR singleton. */
+  adoptLiveState(prev: {
+    emitters: Map<string, EventEmitter>;
+    sessionKeys: Map<string, string>;
+    inFlight: Set<string>;
+  }): void {
+    this.emitters = prev.emitters;
+    this.sessionKeys = prev.sessionKeys;
+    this.inFlight = prev.inFlight;
+    this.recovered = true;
   }
 
   /** Crash recovery: sessions die mid-stream/mid-judging with the process. */
@@ -270,7 +296,12 @@ class ChatEngineImpl implements ChatEngine {
 
   postUserMessage(sessionId: string, content: string): { messageId: string } {
     const session = this.getSession(sessionId);
-    if (session.status !== "active") {
+    // Allow continue-after-judge (and recover from error); block mid-stream/judging.
+    if (
+      session.status !== "active" &&
+      session.status !== "judged" &&
+      session.status !== "error"
+    ) {
       throw new ChatStateError(`Cannot message while session is ${session.status}`);
     }
     const trimmed = content.trim();
@@ -285,6 +316,20 @@ class ChatEngineImpl implements ChatEngine {
     ).get(sessionId) as { n: number };
     if (userTurns.n >= CHAT_LIMITS.MAX_USER_TURNS) {
       throw new ChatStateError("Message cap reached — end and judge this chat");
+    }
+
+    // Re-open after a judging round so multi-turn + re-judge works.
+    if (session.status === "judged" || session.status === "error") {
+      prepare(
+        `UPDATE chat_sessions
+         SET status = 'active', finished_at = NULL, error = NULL
+         WHERE id = ?`,
+      ).run(sessionId);
+      this.emitEvent(sessionId, "chat.session.status", {
+        sessionId,
+        status: "active" as const,
+        totalCostUsd: session.total_cost_usd,
+      });
     }
 
     const messageId = randomUUID();
@@ -774,7 +819,7 @@ class ChatEngineImpl implements ChatEngine {
       sessionId,
       judgeModelId,
       phase: "classify",
-      system: CHAT_CLASSIFY_PROMPT,
+      system: withJudgeEnglishOnly(CHAT_CLASSIFY_PROMPT),
       user: `CONVERSATION TRANSCRIPT:\n${transcript}`,
       schemaName: "chat_classification",
       jsonSchema: chatClassificationJsonSchema,
@@ -806,7 +851,7 @@ class ChatEngineImpl implements ChatEngine {
       sessionId,
       judgeModelId,
       phase: "score",
-      system: chatRubricFor(category),
+      system: withJudgeEnglishOnly(chatRubricFor(category)),
       user: `CONVERSATION TRANSCRIPT:\n${transcript}`,
       schemaName: "judge_output",
       jsonSchema: judgeOutputJsonSchema,
@@ -909,13 +954,35 @@ class ChatEngineImpl implements ChatEngine {
 
 type GlobalEngine = { __aiJudgeChatEngine?: ChatEngineImpl };
 
-/** globalThis singleton (survives Next.js dev HMR). */
+/**
+ * globalThis singleton. On Next.js HMR the class identity changes, so an
+ * `instanceof` miss means we must rebuild — otherwise old method bodies
+ * (e.g. "cannot message while judged") keep running forever.
+ */
 export function getChatEngine(): ChatEngine {
   const g = globalThis as typeof globalThis & GlobalEngine;
-  if (!g.__aiJudgeChatEngine) {
-    g.__aiJudgeChatEngine = new ChatEngineImpl();
+  const existing = g.__aiJudgeChatEngine;
+  if (existing instanceof ChatEngineImpl) {
+    return existing;
   }
-  return g.__aiJudgeChatEngine;
+
+  const next = new ChatEngineImpl({ skipRecover: !!existing });
+  if (existing) {
+    const stale = existing as unknown as {
+      emitters?: Map<string, EventEmitter>;
+      sessionKeys?: Map<string, string>;
+      inFlight?: Set<string>;
+    };
+    if (stale.emitters && stale.sessionKeys && stale.inFlight) {
+      next.adoptLiveState({
+        emitters: stale.emitters,
+        sessionKeys: stale.sessionKeys,
+        inFlight: stale.inFlight,
+      });
+    }
+  }
+  g.__aiJudgeChatEngine = next;
+  return next;
 }
 
 /** Test hook: drop the singleton between suites. */

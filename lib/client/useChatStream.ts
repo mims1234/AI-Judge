@@ -135,6 +135,23 @@ export function useChatStream(sessionId: string | null) {
           case "chat.session.status":
             next.status = evt.data.status;
             next.totalCostUsd = evt.data.totalCostUsd;
+            // Stop EventSource auto-reconnect spam when the session is idle.
+            if (
+              evt.data.status === "active" ||
+              evt.data.status === "judged" ||
+              evt.data.status === "error"
+            ) {
+              queueMicrotask(() => {
+                if (genRef.current !== gen) return;
+                esRef.current?.close();
+                esRef.current = null;
+                setState((s) =>
+                  s.connection === "live"
+                    ? { ...s, connection: "closed" }
+                    : s,
+                );
+              });
+            }
             break;
           case "chat.message.user":
             if (!next.messages.some((m) => m.id === evt.data.messageId)) {

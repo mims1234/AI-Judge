@@ -158,6 +158,71 @@ export function getChatSessionSnapshot(id: string): ChatSessionSnapshot | null {
   };
 }
 
+/* ---------------- Recent sessions (replay / audit) ---------------- */
+
+export type RecentChatSession = {
+  id: string;
+  candidate_model_id: string;
+  status: ChatSessionStatus;
+  category: ChatCategory | null;
+  median_score: number | null;
+  disagreement: number | null;
+  judging_rounds: number;
+  total_cost_usd: number;
+  created_at: string;
+  finished_at: string | null;
+};
+
+/** Newest sessions first — used to reopen chats and inspect rankings. */
+export function listRecentChatSessions(opts?: {
+  limit?: number;
+  modelId?: string;
+}): RecentChatSession[] {
+  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 100);
+  const rows = (
+    opts?.modelId
+      ? prepare(
+          `SELECT id, candidate_model_id, status, category, median_score,
+                  disagreement, judging_rounds, total_cost_usd, created_at, finished_at
+           FROM chat_sessions
+           WHERE candidate_model_id = ?
+           ORDER BY COALESCE(finished_at, created_at) DESC
+           LIMIT ?`,
+        ).all(opts.modelId, limit)
+      : prepare(
+          `SELECT id, candidate_model_id, status, category, median_score,
+                  disagreement, judging_rounds, total_cost_usd, created_at, finished_at
+           FROM chat_sessions
+           ORDER BY COALESCE(finished_at, created_at) DESC
+           LIMIT ?`,
+        ).all(limit)
+  ) as Array<{
+    id: string;
+    candidate_model_id: string;
+    status: ChatSessionStatus;
+    category: ChatCategory | null;
+    median_score: number | null;
+    disagreement: number | null;
+    judging_rounds: number;
+    total_cost_usd: number;
+    created_at: number;
+    finished_at: number | null;
+  }>;
+
+  return rows.map((r) => ({
+    id: r.id,
+    candidate_model_id: r.candidate_model_id,
+    status: r.status,
+    category: r.category,
+    median_score: r.median_score,
+    disagreement: r.disagreement,
+    judging_rounds: r.judging_rounds,
+    total_cost_usd: r.total_cost_usd,
+    created_at: isoFromMs(r.created_at)!,
+    finished_at: isoFromMs(r.finished_at),
+  }));
+}
+
 /* ---------------- Leaderboard ---------------- */
 
 export type ChatLeaderboardRow = {

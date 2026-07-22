@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
+import { RecentSessions } from "@/components/playground/RecentSessions";
 import { CHAT_LIMITS } from "@/lib/schemas";
+import type { RecentChatSession } from "@/lib/server/chatAnalytics";
 
 /** Setup panel — pick one candidate + 3–5 structured-output judges. */
 export function PlaygroundSetup({
@@ -16,12 +18,14 @@ export function PlaygroundSetup({
   catalogEmpty,
   busy,
   error,
+  recentSessions = [],
   onStart,
 }: {
   models: PickerModel[];
   catalogEmpty: boolean;
   busy: boolean;
   error: string | null;
+  recentSessions?: RecentChatSession[];
   onStart: (candidateId: string, judgeIds: string[]) => void;
 }) {
   const [candidateId, setCandidateId] = useState<string | null>(null);
@@ -166,6 +170,8 @@ export function PlaygroundSetup({
           Chat leaderboard →
         </Link>
       </div>
+
+      <RecentSessions sessions={recentSessions} />
 
       <Modal
         open={picker != null}

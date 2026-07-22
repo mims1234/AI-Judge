@@ -1,3 +1,4 @@
+import { JUDGE_ENGLISH_ONLY_RULE } from "@/lib/bundles/judge-language";
 import type { ChatCategory } from "@/lib/schemas";
 
 /**
@@ -32,7 +33,8 @@ Rules:
   Requirement compliance: followed the user's explicit constraints, formats, and instructions.
   Quality: complete, practical, coherent, and useful for what the user was trying to do.
   Honesty: no fabricated facts, fake sources, or unjustified certainty; admits uncertainty.
-- Quote short spans from the transcript as specific_evidence.`;
+- Quote short spans from the transcript as specific_evidence.
+- ${JUDGE_ENGLISH_ONLY_RULE}`;
 
 function rubricFor(category: ChatCategory, focus: string): string {
   return `You are an independent conversation judge.
@@ -138,9 +140,12 @@ Pick the SINGLE category that best describes what the user was trying to accompl
 
 Base the choice on the dominant user intent across the WHOLE conversation, not a single message.
 
+${JUDGE_ENGLISH_ONLY_RULE}
+The "rationale" field must be English even if the transcript is not.
+
 Return only valid JSON:
 {
   "category": "roleplay | coding | math | research | marketing | poster | story | judging | general",
   "confidence": 0.0,
-  "rationale": "one or two sentences citing the dominant user intent"
+  "rationale": "one or two sentences in English citing the dominant user intent"
 }`;

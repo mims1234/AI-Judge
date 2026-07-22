@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { withJudgeEnglishOnly } from "@/lib/bundles/judge-language";
 import { getDb, prepare } from "@/lib/db";
 import { getCachedModel, streamChat } from "@/lib/openrouter";
 import {
@@ -1245,7 +1246,9 @@ export async function runCalibration(
         messages: [
           {
             role: "system",
-            content: "You are an independent benchmark judge.",
+            content: withJudgeEnglishOnly(
+              "You are an independent benchmark judge.",
+            ),
           },
           { role: "user", content: user },
         ],

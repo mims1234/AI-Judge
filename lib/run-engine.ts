@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { withJudgeEnglishOnly } from "@/lib/bundles/judge-language";
 import { getDb, prepare } from "@/lib/db";
 import {
   OpenRouterError,
@@ -1354,7 +1355,11 @@ class RunEngineImpl implements RunEngine {
           );
         }
         const messages = [
-          { role: "system" as const, content: taskMeta.judge_prompt },
+          {
+            role: "system" as const,
+            // Runtime wrap so already-seeded DB prompts also enforce English.
+            content: withJudgeEnglishOnly(taskMeta.judge_prompt),
+          },
           { role: "user" as const, content: userParts.join("\n\n") },
         ];
         this.assertBlind(

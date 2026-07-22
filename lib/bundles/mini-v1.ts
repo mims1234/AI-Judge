@@ -96,7 +96,8 @@ Rules:
 - Do not favor a longer or more polished answer if it is wrong.
 - For code, assess whether it would actually work and whether tests cover requirements.
 - For research, penalize invented citations or claims of web access.
-- For creative tasks, assess constraint compliance, coherence, originality, and execution.`;
+- For creative tasks, assess constraint compliance, coherence, originality, and execution.
+- Language requirement: Respond in English only. All free-text judgment fields (what_was_good, what_was_terrible, what_was_missing, constraint_violations, critical_errors, specific_evidence, one_best_improvement, and any other commentary) must be written in English. You may quote non-English source text as evidence, but your own analysis must be English.`;
 
 export type TaskDefinition = {
   category: Category;

@@ -435,7 +435,7 @@ export const chatClassificationJsonSchema = {
 
 /** Chat guardrails (plans/16 §B4). */
 export const CHAT_LIMITS = {
-  MAX_USER_TURNS: 20,
+  MAX_USER_TURNS: 10,
   MAX_MESSAGE_CHARS: 8_000,
   MAX_TRANSCRIPT_CHARS: 32_000,
   MIN_JUDGES: 3,

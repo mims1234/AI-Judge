@@ -3,6 +3,7 @@ import type { PickerModel } from "@/components/models/ModelPicker";
 import { PlaygroundApp } from "@/components/playground/PlaygroundApp";
 import { buildDemoCatalog } from "@/lib/mocks/catalog";
 import { getCachedCatalog, getModelCatalog, hasServerKey } from "@/lib/openrouter";
+import { listRecentChatSessions } from "@/lib/server/chatAnalytics";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,7 @@ export default async function PlaygroundPage({
       ? await getModelCatalog().catch(() => getCachedCatalog())
       : getCachedCatalog();
   const models = catalog ? strip(catalog.models) : [];
+  const recentSessions = listRecentChatSessions({ limit: 12 });
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-6 py-8 md:px-10">
@@ -62,13 +64,15 @@ export default async function PlaygroundPage({
         <p className="max-w-2xl text-sm text-dim">
           Free-form conversation with one candidate, then a multi-judge panel
           that classifies the transcript and scores it with the matching
-          category rubric.
+          category rubric. Reopen recent chats to inspect transcripts and
+          judging.
         </p>
       </header>
       <PlaygroundApp
         models={models}
         catalogEmpty={models.length === 0}
         initialSessionId={sp.session ?? null}
+        recentSessions={recentSessions}
       />
     </div>
   );

@@ -4,7 +4,7 @@ import {
   needsKeyError,
   parseBody,
 } from "@/lib/api-helpers";
-import { ChatStateError, getChatEngine } from "@/lib/chat-engine";
+import { getChatEngine, isChatStateError } from "@/lib/chat-engine";
 import { prepare } from "@/lib/db";
 import { hasApiKey } from "@/lib/openrouter";
 import { PostChatMessageRequestSchema } from "@/lib/schemas";
@@ -44,7 +44,7 @@ export async function POST(request: Request, ctx: Params) {
       messageId = engine.postUserMessage(id, parsed.data.content).messageId;
       engine.sendMessage(id, userKey);
     } catch (err) {
-      if (err instanceof ChatStateError) {
+      if (isChatStateError(err)) {
         return apiError("INVALID_STATE", 409, err.message);
       }
       throw err;

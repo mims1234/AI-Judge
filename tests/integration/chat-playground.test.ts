@@ -224,6 +224,36 @@ describe("chat playground engine (plans/16 §B2)", () => {
     expect(rounds.map((x) => x.r)).toEqual([1, 2]);
   });
 
+  it("reopens a judged session so the user can keep chatting", () => {
+    tdb = createTestDb();
+    const sessionId = seedSession({ status: "judged", category: "coding" });
+    prepare(
+      `UPDATE chat_sessions SET finished_at = ?, median_score = 7.5 WHERE id = ?`,
+    ).run(Date.now(), sessionId);
+    prepare(
+      `INSERT INTO chat_messages (id, session_id, role, content, created_at)
+       VALUES (?, ?, 'user', 'hi', ?), (?, ?, 'assistant', 'hello', ?)`,
+    ).run(randomUUID(), sessionId, Date.now(), randomUUID(), sessionId, Date.now());
+
+    const engine = getChatEngine();
+    const { messageId } = engine.postUserMessage(sessionId, "follow up");
+    expect(messageId).toBeTruthy();
+
+    const row = prepare(
+      `SELECT status, finished_at, median_score, category FROM chat_sessions WHERE id = ?`,
+    ).get(sessionId) as {
+      status: string;
+      finished_at: number | null;
+      median_score: number | null;
+      category: string | null;
+    };
+    expect(row.status).toBe("active");
+    expect(row.finished_at).toBeNull();
+    // Prior score kept until the next judging round.
+    expect(row.median_score).toBe(7.5);
+    expect(row.category).toBe("coding");
+  });
+
   it("keeps prior median when a re-judge panel fully fails", async () => {
     tdb = createTestDb();
     mock = await startMockOpenRouter();
@@ -308,7 +338,7 @@ describe("chat playground engine (plans/16 §B2)", () => {
       engine.postUserMessage(sessionId, "x".repeat(8_001)),
     ).toThrow(/too long/i);
 
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 10; i++) {
       engine.postUserMessage(sessionId, `turn ${i}`);
     }
     expect(() => engine.postUserMessage(sessionId, "one more")).toThrow(/cap reached/i);

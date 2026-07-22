@@ -15,6 +15,7 @@ import {
 } from "@/lib/client/apiKey";
 import { useChatStream } from "@/lib/client/useChatStream";
 import { formatUsd } from "@/lib/format";
+import type { RecentChatSession } from "@/lib/server/chatAnalytics";
 
 async function readError(res: Response): Promise<string> {
   try {
@@ -30,15 +31,24 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
+function setSessionQuery(sessionId: string | null) {
+  const url = new URL(window.location.href);
+  if (sessionId) url.searchParams.set("session", sessionId);
+  else url.searchParams.delete("session");
+  window.history.replaceState(null, "", url.toString());
+}
+
 /** Client orchestrator for /playground — setup → chat → judge. */
 export function PlaygroundApp({
   models,
   catalogEmpty,
   initialSessionId = null,
+  recentSessions = [],
 }: {
   models: PickerModel[];
   catalogEmpty: boolean;
   initialSessionId?: string | null;
+  recentSessions?: RecentChatSession[];
 }) {
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId);
   const [setupError, setSetupError] = useState<string | null>(null);
@@ -77,9 +87,7 @@ export function PlaygroundApp({
         }
         const json = (await res.json()) as { session_id: string };
         setSessionId(json.session_id);
-        const url = new URL(window.location.href);
-        url.searchParams.set("session", json.session_id);
-        window.history.replaceState(null, "", url.toString());
+        setSessionQuery(json.session_id);
       } catch (err) {
         setSetupError(err instanceof Error ? err.message : "Failed to start");
       } finally {
@@ -103,7 +111,7 @@ export function PlaygroundApp({
       );
       if (!res.ok) {
         setActionError(await readError(res));
-        throw new Error("send failed");
+        return;
       }
       reconnect();
     },
@@ -132,9 +140,8 @@ export function PlaygroundApp({
   const reset = () => {
     setSessionId(null);
     setActionError(null);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("session");
-    window.history.replaceState(null, "", url.pathname);
+    setSetupError(null);
+    setSessionQuery(null);
   };
 
   if (!sessionId) {
@@ -144,6 +151,7 @@ export function PlaygroundApp({
         catalogEmpty={catalogEmpty}
         busy={setupBusy}
         error={setupError}
+        recentSessions={recentSessions}
         onStart={startSession}
       />
     );

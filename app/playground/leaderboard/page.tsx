@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
+import { RecentSessions } from "@/components/playground/RecentSessions";
 import { buttonClasses } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Badge } from "@/components/ui/Badge";
 import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { formatPercent, formatScore, formatUsd } from "@/lib/format";
 import { CHAT_CATEGORY_ORDER, type ChatCategory } from "@/lib/schemas";
-import { queryChatLeaderboard } from "@/lib/server/chatAnalytics";
+import {
+  listRecentChatSessions,
+  queryChatLeaderboard,
+} from "@/lib/server/chatAnalytics";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +19,7 @@ export const metadata: Metadata = {
   title: "Chat leaderboard",
 };
 
-type SearchParams = Promise<{ category?: string }>;
+type SearchParams = Promise<{ category?: string; model?: string }>;
 
 function parseCategory(raw: string | undefined): ChatCategory | "overall" {
   if (!raw || raw === "overall") return "overall";
@@ -32,10 +36,15 @@ export default async function ChatLeaderboardPage({
   noStore();
   const sp = await searchParams;
   const category = parseCategory(sp.category);
+  const modelFilter = sp.model?.trim() || undefined;
   const data = queryChatLeaderboard(
     category === "overall" ? undefined : category,
   );
   const rows = data.rows;
+  const recentSessions = listRecentChatSessions({
+    limit: 24,
+    modelId: modelFilter,
+  });
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8 md:px-10">
@@ -118,7 +127,15 @@ export default async function ChatLeaderboardPage({
                 >
                   <td className="px-3 py-2.5 font-mono text-dim">{row.rank}</td>
                   <td className="px-3 py-2.5 font-mono text-body">
-                    {row.model_id}
+                    <Link
+                      href={`/playground/leaderboard?model=${encodeURIComponent(row.model_id)}${
+                        category !== "overall" ? `&category=${category}` : ""
+                      }`}
+                      className="text-teal-300 hover:text-teal-200"
+                      title="Show this model's sessions"
+                    >
+                      {row.model_id}
+                    </Link>
                   </td>
                   <td className="px-3 py-2.5">
                     <ScoreBadge score={row.score} size="sm" />
@@ -165,6 +182,35 @@ export default async function ChatLeaderboardPage({
           </table>
         </div>
       )}
+
+      <div className="flex flex-col gap-3 border-t border-line-subtle pt-6">
+        {modelFilter && (
+          <p className="text-sm text-dim">
+            Showing sessions for{" "}
+            <span className="font-mono text-body">{modelFilter}</span>
+            {" · "}
+            <Link
+              href={
+                category === "overall"
+                  ? "/playground/leaderboard"
+                  : `/playground/leaderboard?category=${category}`
+              }
+              className="text-teal-300 hover:text-teal-200"
+            >
+              Clear model filter
+            </Link>
+          </p>
+        )}
+        <RecentSessions
+          sessions={recentSessions}
+          title={
+            modelFilter
+              ? `Sessions for ${modelFilter}`
+              : "Recent judged chats"
+          }
+          emptyHint="No sessions yet — run a playground chat and judge it, then reopen it here to inspect the transcript and scores."
+        />
+      </div>
     </div>
   );
 }

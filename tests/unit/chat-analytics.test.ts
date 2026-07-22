@@ -4,6 +4,7 @@ import { encodeChatSessionError } from "@/lib/chat-errors";
 import { prepare } from "@/lib/db";
 import {
   getChatSessionSnapshot,
+  listRecentChatSessions,
   queryChatLeaderboard,
 } from "@/lib/server/chatAnalytics";
 import { createTestDb, type TestDb } from "@/tests/integration/helpers/test-db";
@@ -76,6 +77,30 @@ describe("chat analytics (plans/16 §B4)", () => {
     expect(snap!.messages).toHaveLength(2);
     expect(snap!.judgments).toHaveLength(3);
     expect(snap!.judgments.every((j) => j.round === 1)).toBe(true);
+  });
+
+  it("lists recent sessions newest-first and filters by model", () => {
+    tdb = createTestDb();
+    const older = seedJudgedSession({
+      modelId: "mock/cand-a",
+      category: "coding",
+      median: 7,
+      finishedAt: 1_000,
+    });
+    const newer = seedJudgedSession({
+      modelId: "mock/cand-b",
+      category: "math",
+      median: 9,
+      finishedAt: 2_000,
+    });
+
+    const all = listRecentChatSessions({ limit: 10 });
+    expect(all.map((s) => s.id)).toEqual([newer, older]);
+
+    const onlyB = listRecentChatSessions({ modelId: "mock/cand-b" });
+    expect(onlyB).toHaveLength(1);
+    expect(onlyB[0]!.id).toBe(newer);
+    expect(onlyB[0]!.median_score).toBe(9);
   });
 
   it("leaderboard aggregates medians, provisional flag, and ranks", () => {
