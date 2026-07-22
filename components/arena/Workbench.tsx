@@ -11,23 +11,45 @@ import { RunHeader } from "@/components/arena/RunHeader";
 import { RunReport } from "@/components/report/RunReport";
 import { Tabs } from "@/components/ui/Tabs";
 
+/**
+ * Parse ?cell= — OpenRouter ids may contain ":" (e.g. cohere/foo:free),
+ * so category/trial are taken from the right, not by a naive split.
+ * Formats: `<candidate>:<category>` | `<candidate>:<category>:<trialIndex>`
+ */
 function parseCellParam(raw: string | null): {
   candidate: string | null;
   category: Category | null;
   trial: number | null;
 } {
-  if (!raw) return { candidate: null, category: null, trial: null };
+  const empty = { candidate: null, category: null, trial: null };
+  if (!raw) return empty;
   const parts = raw.split(":");
-  const candidate = parts[0] || null;
-  const category = (parts[1] as Category | undefined) ?? null;
-  const trial =
-    parts[2] != null && parts[2] !== "" && !Number.isNaN(Number(parts[2]))
-      ? Number(parts[2])
-      : null;
-  if (!candidate || !category || !CATEGORY_ORDER.includes(category)) {
-    return { candidate: null, category: null, trial: null };
+  if (parts.length < 2) return empty;
+
+  // `<candidate>:<category>:<trial>` — trial is a non-negative integer suffix
+  if (parts.length >= 3) {
+    const trialRaw = parts[parts.length - 1]!;
+    const categoryRaw = parts[parts.length - 2]!;
+    if (
+      /^\d+$/.test(trialRaw) &&
+      CATEGORY_ORDER.includes(categoryRaw as Category)
+    ) {
+      const candidate = parts.slice(0, -2).join(":");
+      if (!candidate) return empty;
+      return {
+        candidate,
+        category: categoryRaw as Category,
+        trial: Number(trialRaw),
+      };
+    }
   }
-  return { candidate, category, trial };
+
+  // `<candidate>:<category>` — category is a known enum at the end
+  const categoryRaw = parts[parts.length - 1]!;
+  if (!CATEGORY_ORDER.includes(categoryRaw as Category)) return empty;
+  const candidate = parts.slice(0, -1).join(":");
+  if (!candidate) return empty;
+  return { candidate, category: categoryRaw as Category, trial: null };
 }
 
 function WorkbenchInner({

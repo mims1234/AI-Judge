@@ -39,15 +39,22 @@ export function RunHeader() {
   const reconnectInMs = useRunStore((s) => s.reconnectInMs);
   const showJudgeStreams = useRunStore((s) => s.showJudgeStreams);
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  // Avoid SSR/client Date.now() mismatch on the live elapsed clock.
+  const [mounted, setMounted] = useState(false);
+  const [now, setNow] = useState(0);
 
   const terminal = isTerminal(run.status);
 
   useEffect(() => {
-    if (terminal || !run.startedAt) return;
+    setMounted(true);
+    setNow(Date.now());
+  }, []);
+
+  useEffect(() => {
+    if (!mounted || terminal || !run.startedAt) return;
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [terminal, run.startedAt]);
+  }, [mounted, terminal, run.startedAt]);
 
   const startedMs = run.startedAt ? Date.parse(run.startedAt) : null;
   const finishedMs = run.finishedAt ? Date.parse(run.finishedAt) : null;
@@ -56,7 +63,9 @@ export function RunHeader() {
       ? 0
       : terminal && finishedMs != null
         ? finishedMs - startedMs
-        : now - startedMs;
+        : mounted
+          ? now - startedMs
+          : 0;
 
   const capReached = run.notice?.code === "BUDGET_CAP_REACHED";
   const statusMeta = STATUS_TONE[run.status] ?? STATUS_TONE.queued!;

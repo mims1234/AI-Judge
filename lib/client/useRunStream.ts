@@ -41,6 +41,13 @@ type StreamBuffer = {
   status: "idle" | "streaming" | "done" | "error";
 };
 
+/** Stable empty snapshot for useSyncExternalStore — never mutate this object. */
+const EMPTY_BUFFER: StreamBuffer = Object.freeze({
+  text: "",
+  tokens: 0,
+  status: "idle" as const,
+});
+
 type StoreApi = {
   getState: () => RunStoreState;
   subscribe: (listener: () => void) => () => void;
@@ -131,16 +138,15 @@ export function RunStoreProvider({
 
   const appendBuffer = useCallback(
     (key: StreamKey, delta: string, tokens?: number) => {
-      const cur = buffersRef.current.get(key) ?? {
-        text: "",
-        tokens: 0,
-        status: "idle" as const,
+      const prev = buffersRef.current.get(key);
+      if (tokens != null && prev && tokens <= prev.tokens) return; // duplicate-drop
+      // New object each update so useSyncExternalStore getSnapshot changes by reference.
+      const next: StreamBuffer = {
+        text: (prev?.text ?? "") + delta,
+        tokens: tokens ?? prev?.tokens ?? 0,
+        status: "streaming",
       };
-      if (tokens != null && tokens <= cur.tokens) return; // duplicate-drop
-      cur.text += delta;
-      if (tokens != null) cur.tokens = tokens;
-      cur.status = "streaming";
-      buffersRef.current.set(key, cur);
+      buffersRef.current.set(key, next);
       dirtyBuffersRef.current.add(key);
       scheduleFlush();
     },
@@ -149,14 +155,13 @@ export function RunStoreProvider({
 
   const setBufferDone = useCallback(
     (key: StreamKey, text?: string) => {
-      const cur = buffersRef.current.get(key) ?? {
-        text: "",
-        tokens: 0,
-        status: "idle" as const,
+      const prev = buffersRef.current.get(key);
+      const next: StreamBuffer = {
+        text: text ?? prev?.text ?? "",
+        tokens: prev?.tokens ?? 0,
+        status: "done",
       };
-      if (text != null) cur.text = text;
-      cur.status = "done";
-      buffersRef.current.set(key, cur);
+      buffersRef.current.set(key, next);
       dirtyBuffersRef.current.add(key);
       scheduleFlush();
     },
@@ -420,8 +425,7 @@ export function RunStoreProvider({
       listenersRef.current.add(listener);
       return () => listenersRef.current.delete(listener);
     },
-    getBuffer: (key) =>
-      buffersRef.current.get(key) ?? { text: "", tokens: 0, status: "idle" },
+    getBuffer: (key) => buffersRef.current.get(key) ?? EMPTY_BUFFER,
     subscribeBuffer: (key, listener) => {
       let set = bufferListenersRef.current.get(key);
       if (!set) {
@@ -523,8 +527,8 @@ export function useStreamBuffer(key: StreamKey | null): StreamBuffer {
       if (!key) return () => {};
       return api.subscribeBuffer(key, onStoreChange);
     },
-    () => (key ? api.getBuffer(key) : { text: "", tokens: 0, status: "idle" as const }),
-    () => (key ? api.getBuffer(key) : { text: "", tokens: 0, status: "idle" as const }),
+    () => (key ? api.getBuffer(key) : EMPTY_BUFFER),
+    () => (key ? api.getBuffer(key) : EMPTY_BUFFER),
   );
 }
 
