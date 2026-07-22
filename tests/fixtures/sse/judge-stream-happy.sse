@@ -1,0 +1,118 @@
+: keepalive
+
+data: {"choices":[{"delta":{"content":"{\"scores"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"\":{\"corr"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ectness\""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":":8,\"requ"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"irement_"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"complian"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ce\":9,\"q"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"uality\":"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"8,\"hones"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ty\":9},\""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"overall_"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"score\":8"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":".5,\"verd"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ict\":\"pa"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ss\",\"wha"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"t_was_go"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"od\":[\"Cl"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ear stru"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"cture\",\""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"Concrete"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" numbers"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" 552 and"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" 432\"],\""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"what_was"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"_terribl"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"e\":[],\"w"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"hat_was_"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"missing\""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":":[\"Could"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":" note co"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"nvert no"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"n-churn "},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"rule ear"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"lier\"],\""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"constrai"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"nt_viola"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"tions\":["},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"],\"criti"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"cal_erro"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"rs\":[],\""},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"specific"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"_evidenc"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"e\":[\"Men"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"tions fr"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ee=552\","},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"\"Mention"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"s paid=4"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"32\"],\"on"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"e_best_i"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"mproveme"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"nt\":\"Lea"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"d with t"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"he groun"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"d-truth "},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"equation"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"\"}"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"usage":{"prompt_tokens":200,"completion_tokens":120,"total_tokens":320,"cost":0.002}}
+
+data: [DONE]
+

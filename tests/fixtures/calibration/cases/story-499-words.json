@@ -1,0 +1,26 @@
+{
+  "id": "story-499-words",
+  "category": "story",
+  "task_snapshot": {
+    "category": "story",
+    "token_limit": 2500,
+    "task_body": "Write a story between 500 and 700 words.",
+    "output_schema": {
+      "type": "object",
+      "required": ["title", "story"],
+      "properties": {
+        "story": { "type": "string", "wordCountRangeInclusive": [500, 700] }
+      }
+    }
+  },
+  "candidate_answer": "{\n  \"title\": \"Short\",\n  \"story\": \"word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word\"\n}",
+  "validator_findings": [
+    { "validator": "json_parseable", "passed": true, "expected_json": null, "actual_json": null, "details": "" },
+    { "validator": "story_word_range", "passed": false, "expected_json": "[500,700]", "actual_json": "499", "details": "499 words outside [500, 700]" }
+  ],
+  "human": {
+    "expected_verdict": "fail",
+    "expected_overall_range": [0, 4],
+    "must_flag": ["500", "word"]
+  }
+}

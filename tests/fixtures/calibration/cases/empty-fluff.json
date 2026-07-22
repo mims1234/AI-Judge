@@ -1,0 +1,23 @@
+{
+  "id": "empty-fluff",
+  "category": "marketing",
+  "task_snapshot": {
+    "category": "marketing",
+    "token_limit": 1500,
+    "task_body": "Write hero copy and a launch post.",
+    "output_schema": {
+      "type": "object",
+      "required": ["hero", "launch_post"]
+    }
+  },
+  "candidate_answer": "{\n  \"hero\": {\n    \"headline\": \"Stuff\",\n    \"subheadline\": \"Things\",\n    \"benefits\": [\"a\", \"b\", \"c\"],\n    \"primary_cta\": \"Go\",\n    \"secondary_cta\": \"Ok\"\n  },\n  \"launch_post\": \"Cool product. Buy it.\"\n}",
+  "validator_findings": [
+    { "validator": "json_parseable", "passed": true, "expected_json": null, "actual_json": null, "details": "" },
+    { "validator": "marketing_fields", "passed": true, "expected_json": null, "actual_json": null, "details": "" }
+  ],
+  "human": {
+    "expected_verdict": "fail",
+    "expected_overall_range": [0, 4],
+    "must_flag": ["vague", "incomplete"]
+  }
+}

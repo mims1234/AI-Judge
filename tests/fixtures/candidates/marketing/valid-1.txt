@@ -1,0 +1,14 @@
+{
+  "hero": {
+    "headline": "Ship calmer",
+    "subheadline": "Error budgets watched",
+    "primary_cta": "Start free",
+    "secondary_cta": "Docs",
+    "benefits": [
+      "Calm deploys",
+      "Budget alerts",
+      "No card"
+    ]
+  },
+  "launch_post": "Start free for 14 days."
+}

@@ -1,0 +1,15 @@
+{
+  "diagnostic_questions": [
+    "Q1?",
+    "Q2?",
+    "Q3?"
+  ],
+  "triage_steps": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5"
+  ],
+  "tone_notes": "calm"
+}

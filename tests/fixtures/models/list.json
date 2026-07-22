@@ -1,0 +1,135 @@
+{
+  "data": [
+    {
+      "id": "mock/cand-a",
+      "name": "Cand A",
+      "context_length": 128000,
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002"
+      },
+      "supported_parameters": [
+        "structured_outputs",
+        "temperature",
+        "max_tokens"
+      ]
+    },
+    {
+      "id": "mock/cand-b",
+      "name": "Cand B",
+      "context_length": 128000,
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002"
+      },
+      "supported_parameters": [
+        "structured_outputs",
+        "temperature",
+        "max_tokens"
+      ]
+    },
+    {
+      "id": "mock/judge-1",
+      "name": "Judge 1",
+      "context_length": 128000,
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002"
+      },
+      "supported_parameters": [
+        "structured_outputs",
+        "temperature",
+        "max_tokens"
+      ]
+    },
+    {
+      "id": "mock/judge-2",
+      "name": "Judge 2",
+      "context_length": 128000,
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002"
+      },
+      "supported_parameters": [
+        "structured_outputs",
+        "temperature",
+        "max_tokens"
+      ]
+    },
+    {
+      "id": "mock/judge-3",
+      "name": "Judge 3",
+      "context_length": 128000,
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002"
+      },
+      "supported_parameters": [
+        "structured_outputs",
+        "temperature",
+        "max_tokens"
+      ]
+    },
+    {
+      "id": "mock/judge-4",
+      "name": "Judge 4",
+      "context_length": 128000,
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002"
+      },
+      "supported_parameters": [
+        "structured_outputs",
+        "temperature",
+        "max_tokens"
+      ]
+    },
+    {
+      "id": "mock/free",
+      "name": "Free Model",
+      "context_length": 32000,
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "supported_parameters": [
+        "temperature",
+        "max_tokens"
+      ]
+    },
+    {
+      "id": "mock/no-price",
+      "name": "No Price",
+      "context_length": 32000,
+      "pricing": null,
+      "supported_parameters": [
+        "temperature",
+        "max_tokens"
+      ]
+    },
+    {
+      "id": "mock/cand-c",
+      "name": "Cand C",
+      "context_length": 64000,
+      "pricing": {
+        "prompt": "0.0000005",
+        "completion": "0.000001"
+      },
+      "supported_parameters": [
+        "structured_outputs"
+      ]
+    },
+    {
+      "id": "mock/judge-5",
+      "name": "Judge 5",
+      "context_length": 128000,
+      "pricing": {
+        "prompt": "0.000001",
+        "completion": "0.000002"
+      },
+      "supported_parameters": [
+        "structured_outputs"
+      ]
+    }
+  ]
+}

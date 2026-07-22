@@ -1,0 +1,14 @@
+{
+  "hero": {
+    "headline": "Friday deploys",
+    "subheadline": "Stay calm",
+    "primary_cta": "Try",
+    "secondary_cta": "Learn",
+    "benefits": [
+      "A",
+      "B",
+      "C"
+    ]
+  },
+  "launch_post": "Watch your error budget."
+}

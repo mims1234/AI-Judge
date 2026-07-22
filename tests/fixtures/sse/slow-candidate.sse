@@ -1,0 +1,92 @@
+: keepalive
+
+data: {"choices":[{"delta":{"content":"slow-str"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"eam-body"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"-slow-st"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ream-bod"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"y-slow-s"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"tream-bo"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"dy-slow-"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"stream-b"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ody-slow"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"-stream-"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"body-slo"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"w-stream"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"-body-sl"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ow-strea"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"m-body-s"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"low-stre"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"am-body-"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"slow-str"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"eam-body"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"-slow-st"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ream-bod"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"y-slow-s"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"tream-bo"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"dy-slow-"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"stream-b"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ody-slow"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"-stream-"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"body-slo"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"w-stream"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"-body-sl"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ow-strea"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"m-body-s"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"low-stre"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"am-body-"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"slow-str"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"eam-body"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"-slow-st"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ream-bod"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"y-slow-s"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"tream-bo"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"dy-slow-"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"stream-b"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{"content":"ody-"},"index":0}],"usage":null}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}],"usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150,"cost":0.001}}
+
+data: [DONE]
+

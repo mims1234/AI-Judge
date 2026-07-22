@@ -1,0 +1,12 @@
+{
+  "scores": {
+    "correctness": 7,
+    "requirement_compliance": 7,
+    "quality": 7
+  },
+  "overall_score": 7,
+  "verdict": "maybe",
+  "what_was_good": [
+    "ok"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "free_users_after_month_1": 552,
+  "paid_users_after_month_1": 432,
+  "calculation": [
+    "600-48=552",
+    "400-16+48=432"
+  ],
+  "assumptions": [
+    "converts cannot churn in month 1"
+  ]
+}

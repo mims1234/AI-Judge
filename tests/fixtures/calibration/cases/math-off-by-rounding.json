@@ -1,0 +1,27 @@
+{
+  "id": "math-off-by-rounding",
+  "category": "math",
+  "task_snapshot": {
+    "category": "math",
+    "token_limit": 1200,
+    "task_body": "Compute free and paid subscriber counts after month 1.",
+    "output_schema": {
+      "type": "object",
+      "required": ["free_users_after_month_1", "paid_users_after_month_1"],
+      "properties": {
+        "free_users_after_month_1": { "type": "number" },
+        "paid_users_after_month_1": { "type": "number" }
+      }
+    }
+  },
+  "candidate_answer": "{\n  \"free_users_after_month_1\": 550,\n  \"paid_users_after_month_1\": 430,\n  \"calculation\": [\"rounded intermediate percentages\"],\n  \"assumptions\": [\"none\"]\n}",
+  "validator_findings": [
+    { "validator": "json_parseable", "passed": true, "expected_json": null, "actual_json": null, "details": "" },
+    { "validator": "math_ground_truth", "passed": false, "expected_json": "{\"free\":552,\"paid\":432}", "actual_json": "{\"free\":550,\"paid\":430}", "details": "expected free=552, got 550" }
+  ],
+  "human": {
+    "expected_verdict": "fail",
+    "expected_overall_range": [0, 4],
+    "must_flag": ["552", "math"]
+  }
+}

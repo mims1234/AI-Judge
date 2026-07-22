@@ -1,0 +1,15 @@
+{
+  "diagnostic_questions": [
+    "A?",
+    "B?",
+    "C?"
+  ],
+  "triage_steps": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5"
+  ],
+  "tone_notes": "steady"
+}

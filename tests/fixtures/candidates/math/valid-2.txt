@@ -1,0 +1,10 @@
+{
+  "free_users_after_month_1": "552",
+  "paid_users_after_month_1": "432",
+  "calculation": [
+    "same"
+  ],
+  "assumptions": [
+    "same"
+  ]
+}

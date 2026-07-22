@@ -1,0 +1,12 @@
+{
+  "hero": {
+    "headline": "Buy now!!!",
+    "subheadline": "x",
+    "primary_cta": "Buy",
+    "secondary_cta": "No",
+    "benefits": [
+      "only one"
+    ]
+  },
+  "launch_post": ""
+}

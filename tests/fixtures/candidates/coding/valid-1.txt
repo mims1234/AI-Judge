@@ -1,0 +1,15 @@
+{
+  "code": "export function createIdempotencyGuard() { const seen=new Set(); return { check(k){ if(seen.has(k)) return false; seen.add(k); return true; } }; }",
+  "explanation": "Tracks keys in a Set",
+  "complexity": {
+    "time": "O(1)",
+    "space": "O(n)"
+  },
+  "tests": [
+    "empty",
+    "dup",
+    "stable",
+    "unicode",
+    "nullish"
+  ]
+}

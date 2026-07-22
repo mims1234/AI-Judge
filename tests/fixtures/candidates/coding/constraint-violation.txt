@@ -1,0 +1,12 @@
+{
+  "code": "import { exec } from \"child_process\";\nexport function createIdempotencyGuard(){}",
+  "explanation": "bad",
+  "complexity": {
+    "time": "O(1)",
+    "space": "O(1)"
+  },
+  "tests": [
+    "a",
+    "b"
+  ]
+}

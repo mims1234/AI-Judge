@@ -1,0 +1,8 @@
+{
+  "free_users_after_month_1": 552,
+  "paid_users_after_month_1": 436,
+  "calculation": [
+    "wrong churn on 448"
+  ],
+  "assumptions": []
+}

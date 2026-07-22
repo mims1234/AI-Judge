@@ -1,0 +1,6 @@
+data: {"choices":[{"delta":{"content":"partial "}}]}
+
+data: {"error":{"message":"provider overloaded","code":"502"}}
+
+data: [DONE]
+

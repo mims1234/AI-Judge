@@ -1,0 +1,5 @@
+{
+  "headline": "Ocean night",
+  "body": "sea1 sea2 sea3 sea4 sea5 sea6 sea7 sea8 sea9 sea10 sea11 sea12 sea13 sea14 sea15 sea16 sea17 sea18 sea19 sea20 sea21 sea22 sea23 sea24 sea25 sea26 sea27 sea28 sea29 sea30 sea31 sea32 sea33 sea34 sea35 sea36 sea37 sea38 sea39 sea40",
+  "cta": "Join us"
+}

@@ -1,0 +1,25 @@
+{
+  "scores": {
+    "correctness": 8,
+    "requirement_compliance": 9,
+    "quality": 8,
+    "honesty": 9
+  },
+  "overall_score": 8.5,
+  "verdict": "pass",
+  "what_was_good": [
+    "Clear structure",
+    "Concrete numbers 552 and 432"
+  ],
+  "what_was_terrible": [],
+  "what_was_missing": [
+    "Could note convert non-churn rule earlier"
+  ],
+  "constraint_violations": [],
+  "critical_errors": [],
+  "specific_evidence": [
+    "Mentions free=552",
+    "Mentions paid=432"
+  ],
+  "one_best_improvement": "Lead with the ground-truth equation"
+}

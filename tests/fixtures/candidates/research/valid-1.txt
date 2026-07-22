@@ -1,0 +1,8 @@
+{
+  "summary": "ok",
+  "evidence": [
+    "a",
+    "b"
+  ],
+  "confidence": 0.8
+}

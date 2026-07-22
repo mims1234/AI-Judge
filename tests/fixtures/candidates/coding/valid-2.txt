@@ -1,0 +1,16 @@
+{
+  "code": "function createIdempotencyGuard(){ return { check(){ return true; } }; }",
+  "explanation": "Minimal",
+  "complexity": {
+    "time": "O(1)",
+    "space": "O(1)"
+  },
+  "tests": [
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f"
+  ]
+}

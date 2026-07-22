@@ -1,0 +1,25 @@
+{
+  "id": "coding-shape-ok",
+  "category": "coding",
+  "task_snapshot": {
+    "category": "coding",
+    "token_limit": 3000,
+    "task_body": "Write createIdempotencyGuard with tests.",
+    "output_schema": {
+      "type": "object",
+      "required": ["code", "explanation", "complexity", "tests"]
+    }
+  },
+  "candidate_answer": "{\n  \"code\": \"export function createIdempotencyGuard(opts) { const seen = new Map(); return async (input) => { if (seen.has(opts.key)) return seen.get(opts.key); const v = await opts.handler(input); seen.set(opts.key, v); return v; }; }\",\n  \"explanation\": \"In-memory TTL-less guard for demo.\",\n  \"complexity\": { \"time\": \"O(1)\", \"space\": \"O(n)\" },\n  \"tests\": [\"test('a')\", \"test('b')\", \"test('c')\", \"test('d')\", \"test('e')\"]\n}",
+  "validator_findings": [
+    { "validator": "json_parseable", "passed": true, "expected_json": null, "actual_json": null, "details": "" },
+    { "validator": "coding_function_present", "passed": true, "expected_json": null, "actual_json": null, "details": "" },
+    { "validator": "coding_test_count", "passed": true, "expected_json": ">=5", "actual_json": "5", "details": "" },
+    { "validator": "coding_no_forbidden_imports", "passed": true, "expected_json": null, "actual_json": null, "details": "" }
+  ],
+  "human": {
+    "expected_verdict": "partial_pass",
+    "expected_overall_range": [5, 9],
+    "must_flag": []
+  }
+}
