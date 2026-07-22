@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { PickerModel } from "@/components/models/ModelPicker";
 import { ChatComposer } from "@/components/playground/ChatComposer";
@@ -9,6 +9,9 @@ import { JudgingPanel } from "@/components/playground/JudgingPanel";
 import { PlaygroundSetup } from "@/components/playground/PlaygroundSetup";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { LoadingCue } from "@/components/ui/LoadingCue";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { StatusDot } from "@/components/ui/StatusDot";
 import {
   apiFetch,
   isNeedsKeyResponse,
@@ -38,6 +41,33 @@ function setSessionQuery(sessionId: string | null) {
   window.history.replaceState(null, "", url.toString());
 }
 
+function connectionTone(
+  connection: ReturnType<typeof useChatStream>["state"]["connection"],
+): "idle" | "streaming" | "done" | "error" {
+  if (connection === "live") return "streaming";
+  if (connection === "hydrating") return "streaming";
+  if (connection === "error") return "error";
+  if (connection === "closed") return "done";
+  return "idle";
+}
+
+function connectionLabel(
+  connection: ReturnType<typeof useChatStream>["state"]["connection"],
+): string {
+  switch (connection) {
+    case "hydrating":
+      return "loading";
+    case "live":
+      return "live";
+    case "closed":
+      return "idle";
+    case "error":
+      return "offline";
+    default:
+      return "idle";
+  }
+}
+
 /** Client orchestrator for /playground — setup → chat → judge. */
 export function PlaygroundApp({
   models,
@@ -55,6 +85,7 @@ export function PlaygroundApp({
   const [setupBusy, setSetupBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [judging, setJudging] = useState(false);
+  const [awaitingReply, setAwaitingReply] = useState(false);
 
   const { state, reconnect } = useChatStream(sessionId);
 
@@ -66,7 +97,23 @@ export function PlaygroundApp({
     (m) => m.role === "assistant" && m.content.length > 0 && !m.streaming,
   );
   const busy =
-    state.status === "streaming" || state.status === "judging" || judging;
+    state.status === "streaming" ||
+    state.status === "judging" ||
+    judging ||
+    awaitingReply ||
+    state.connection === "hydrating";
+
+  // Clear the post-send wait cue once streaming starts or status settles.
+  useEffect(() => {
+    if (!awaitingReply) return;
+    if (
+      state.status === "streaming" ||
+      state.status === "error" ||
+      state.messages.some((m) => m.role === "assistant" && m.streaming)
+    ) {
+      setAwaitingReply(false);
+    }
+  }, [awaitingReply, state.status, state.messages]);
 
   const startSession = useCallback(
     async (candidate: string, judgeIds: string[]) => {
@@ -101,6 +148,7 @@ export function PlaygroundApp({
     async (content: string) => {
       if (!sessionId) return;
       setActionError(null);
+      setAwaitingReply(true);
       const res = await apiFetch(
         `/api/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
         {
@@ -110,6 +158,7 @@ export function PlaygroundApp({
         },
       );
       if (!res.ok) {
+        setAwaitingReply(false);
         setActionError(await readError(res));
         return;
       }
@@ -141,6 +190,7 @@ export function PlaygroundApp({
     setSessionId(null);
     setActionError(null);
     setSetupError(null);
+    setAwaitingReply(false);
     setSessionQuery(null);
   };
 
@@ -157,6 +207,18 @@ export function PlaygroundApp({
     );
   }
 
+  if (state.connection === "hydrating" && !state.candidateModelId) {
+    return (
+      <div className="flex flex-col gap-4 rounded-md border border-line-subtle bg-ink-950/40 p-4">
+        <LoadingCue label="Loading session" />
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)]">
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </div>
+    );
+  }
+
   const modelLabel = state.candidateModelId ?? "candidate";
 
   return (
@@ -167,6 +229,10 @@ export function PlaygroundApp({
           <Badge tone="neutral">{state.status}</Badge>
           {state.category && <Badge tone="teal">{state.category}</Badge>}
           <Badge tone="neutral">{formatUsd(state.totalCostUsd)}</Badge>
+          <span className="inline-flex items-center gap-1.5 rounded-sm border border-line-subtle px-2 py-0.5 text-[11px] text-dim">
+            <StatusDot tone={connectionTone(state.connection)} />
+            {connectionLabel(state.connection)}
+          </span>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
@@ -175,7 +241,13 @@ export function PlaygroundApp({
           >
             Leaderboard
           </Link>
-          <Button type="button" variant="ghost" size="sm" onClick={reset}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={reset}
+            disabled={busy && state.status !== "judged"}
+          >
             New session
           </Button>
         </div>
@@ -191,7 +263,11 @@ export function PlaygroundApp({
 
       <div className="grid min-h-0 flex-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)]">
         <section className="flex min-h-0 flex-col rounded-md border border-line-subtle bg-ink-950/40 p-3 md:p-4">
-          <ChatThread messages={state.messages} candidateModelId={modelLabel} />
+          <ChatThread
+            messages={state.messages}
+            candidateModelId={modelLabel}
+            awaitingReply={awaitingReply}
+          />
           <ChatComposer
             disabled={busy || state.status === "error"}
             judging={judging || state.status === "judging"}

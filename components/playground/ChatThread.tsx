@@ -9,9 +9,12 @@ import type { ChatUiMessage } from "@/lib/client/useChatStream";
 export function ChatThread({
   messages,
   candidateModelId,
+  awaitingReply = false,
 }: {
   messages: ChatUiMessage[];
   candidateModelId: string;
+  /** True after Send until the first assistant delta arrives. */
+  awaitingReply?: boolean;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -21,7 +24,11 @@ export function ChatThread({
     if (stickRef.current) {
       bottomRef.current?.scrollIntoView({ block: "end" });
     }
-  }, [messages]);
+  }, [messages, awaitingReply]);
+
+  const showAwaiting =
+    awaitingReply &&
+    !messages.some((m) => m.role === "assistant" && m.streaming);
 
   return (
     <div
@@ -83,6 +90,20 @@ export function ChatThread({
             </article>
           );
         })
+      )}
+      {showAwaiting && (
+        <article className="flex flex-col items-start gap-1.5" aria-live="polite">
+          <span className="font-mono text-[11px] uppercase tracking-wide text-dim">
+            {candidateModelId}
+          </span>
+          <div className="flex items-center gap-2 rounded-md border border-line-subtle bg-ink-900 px-3.5 py-2.5 text-sm text-dim">
+            <span
+              className="inline-block h-2 w-2 animate-pulse rounded-full bg-teal-400"
+              aria-hidden
+            />
+            Waiting for reply…
+          </div>
+        </article>
       )}
       <div ref={bottomRef} />
     </div>

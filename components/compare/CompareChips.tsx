@@ -165,23 +165,29 @@ export function CompareChips({
       >
         <p className="mb-3 text-sm text-dim">
           Pick up to 4 models with at least one complete run in this bundle.
-          {loading && " Loading catalog…"}
+          {loading ? " Loading catalog…" : null}
         </p>
         <div className="h-[420px]">
-          <ModelPicker
-            variant="palette"
-            models={models}
-            selectedIds={draft}
-            maxSelection={4}
-            onToggle={(id) => {
-              setDraft((cur) => {
-                if (cur.includes(id)) return cur.filter((x) => x !== id);
-                if (cur.length >= 4) return cur;
-                return [...cur, id];
-              });
-            }}
-            autoFocusSearch
-          />
+          {loading ? (
+            <div className="flex h-full items-center justify-center">
+              <p className="font-mono text-xs text-dim">Loading models…</p>
+            </div>
+          ) : (
+            <ModelPicker
+              variant="palette"
+              models={models}
+              selectedIds={draft}
+              maxSelection={4}
+              onToggle={(id) => {
+                setDraft((cur) => {
+                  if (cur.includes(id)) return cur.filter((x) => x !== id);
+                  if (cur.length >= 4) return cur;
+                  return [...cur, id];
+                });
+              }}
+              autoFocusSearch
+            />
+          )}
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setOpen(false)}>
@@ -189,6 +195,8 @@ export function CompareChips({
           </Button>
           <Button
             variant="primary"
+            loading={loading}
+            disabled={loading || draft.length === 0}
             onClick={() => {
               push(bundleSlug, draft);
               setOpen(false);

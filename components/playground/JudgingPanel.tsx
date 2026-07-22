@@ -5,6 +5,7 @@ import { formatScore, formatUsd, scoreBand } from "@/lib/format";
 import type { ChatLiveState } from "@/lib/client/useChatStream";
 import { Badge } from "@/components/ui/Badge";
 import { FeedbackChipList } from "@/components/ui/FeedbackChip";
+import { LoadingCue } from "@/components/ui/LoadingCue";
 import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { VerdictBadge } from "@/components/ui/VerdictBadge";
 
@@ -96,13 +97,19 @@ export function JudgingPanel({ state }: { state: ChatLiveState }) {
         </section>
       )}
 
-      {state.judgments.length === 0 ? (
+      {judging && state.judgments.length === 0 && (
+        <LoadingCue
+          compact
+          label="Judges classifying and scoring"
+          className="rounded-md border border-line-subtle bg-ink-900 px-3"
+        />
+      )}
+
+      {state.judgments.length === 0 && !judging ? (
         <p className="text-sm text-dim">
-          {judging
-            ? "Judges are classifying and scoring the transcript…"
-            : "Run a judging round after the candidate replies."}
+          Run a judging round after the candidate replies.
         </p>
-      ) : (
+      ) : state.judgments.length === 0 ? null : (
         <ul className="flex flex-col gap-3">
           {state.judgments.map((j) => (
             <li

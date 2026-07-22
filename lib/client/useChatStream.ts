@@ -34,7 +34,7 @@ export type ChatLiveState = {
     confidence: number;
     rationale?: string;
   }>;
-  connection: "idle" | "live" | "closed" | "error";
+  connection: "idle" | "hydrating" | "live" | "closed" | "error";
   notice: string | null;
 };
 
@@ -73,7 +73,8 @@ function fromSnapshot(snap: ChatSessionSnapshot): ChatLiveState {
     })),
     judgments: snap.judgments,
     classifyVotes: [],
-    connection: "idle",
+    // Stay "hydrating" until EventSource connects (connect() flips to live).
+    connection: "hydrating",
     notice: null,
   };
 }
@@ -332,6 +333,11 @@ export function useChatStream(sessionId: string | null) {
       return;
     }
     const gen = ++genRef.current;
+    setState((s) => ({
+      ...emptyState(),
+      connection: "hydrating",
+      notice: s.notice,
+    }));
     void (async () => {
       try {
         await hydrate(sessionId, gen);

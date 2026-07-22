@@ -9,6 +9,7 @@ import { RunStoreProvider, useRunStore } from "@/lib/client/useRunStream";
 import { ArenaGrid } from "@/components/arena/ArenaGrid";
 import { RunHeader } from "@/components/arena/RunHeader";
 import { RunReport } from "@/components/report/RunReport";
+import { LoadingCue } from "@/components/ui/LoadingCue";
 import { Tabs } from "@/components/ui/Tabs";
 
 function WorkbenchInner({
@@ -24,12 +25,14 @@ function WorkbenchInner({
   const notice = useRunStore((s) => s.run.notice);
   const terminal = isTerminal(status);
   const [reportSnapshot, setReportSnapshot] = useState(initialSnapshot);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const view = searchParams.get("view") === "report" ? "report" : "arena";
 
   useEffect(() => {
     if (view !== "report" || !terminal) return;
     let cancelled = false;
+    setReportLoading(true);
     fetch(`/api/runs/${encodeURIComponent(runId)}`, { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: RunSnapshot | null) => {
@@ -37,6 +40,9 @@ function WorkbenchInner({
       })
       .catch(() => {
         /* keep initial */
+      })
+      .finally(() => {
+        if (!cancelled) setReportLoading(false);
       });
     return () => {
       cancelled = true;
@@ -100,11 +106,15 @@ function WorkbenchInner({
       )}
 
       {view === "report" && terminal ? (
-        <RunReport
-          snapshot={reportSnapshot}
-          eligibilityReason={eligibilityBanner}
-          onOpenCell={openCell}
-        />
+        reportLoading ? (
+          <LoadingCue label="Loading report" />
+        ) : (
+          <RunReport
+            snapshot={reportSnapshot}
+            eligibilityReason={eligibilityBanner}
+            onOpenCell={openCell}
+          />
+        )
       ) : (
         <ArenaGrid />
       )}

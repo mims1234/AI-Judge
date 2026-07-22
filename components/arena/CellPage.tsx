@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, type CSSProperties } from "react";
+import {
+  useMemo,
+  useState,
+  useTransition,
+  type CSSProperties,
+} from "react";
 import { cn } from "@/lib/cn";
 import { buildCellHref } from "@/lib/cellRef";
 import {
@@ -30,6 +35,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
 import { DisagreementFlag } from "@/components/ui/DisagreementFlag";
+import { LoadingCue } from "@/components/ui/LoadingCue";
 import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { StreamPanel } from "@/components/ui/StreamPanel";
@@ -421,13 +427,16 @@ function CellPageInner({
   }, [trial]);
 
   const [tab, setTab] = useState("checks");
+  const [pendingTrial, startTrialTransition] = useTransition();
   const summary = validatorSummary(trial?.checks);
   const flagged = !!trial?.flagged || (trial?.spread != null && trial.spread > 3);
   const medianBand = trial?.median != null ? scoreBand(trial.median) : null;
 
   const selectTrial = (t: number) => {
-    router.replace(buildCellHref(runId, candidateModelId, category, t), {
-      scroll: false,
+    startTrialTransition(() => {
+      router.replace(buildCellHref(runId, candidateModelId, category, t), {
+        scroll: false,
+      });
     });
   };
 
@@ -531,6 +540,10 @@ function CellPageInner({
           </div>
         )}
       </section>
+
+      {pendingTrial && (
+        <LoadingCue compact label="Switching trial" className="py-1" />
+      )}
 
       {/* Trials switcher */}
       {trialIndices.length > 1 && (

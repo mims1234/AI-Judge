@@ -68,10 +68,12 @@ export function AppShell({
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeRun, setActiveRun] = useState<RunningRun | null>(null);
   const [needsBrowserKey, setNeedsBrowserKey] = useState(false);
+  const [navPending, setNavPending] = useState(false);
 
-  // Close the mobile menu on navigation.
+  // Close the mobile menu on navigation + clear top progress cue.
   useEffect(() => {
     setMenuOpen(false);
+    setNavPending(false);
   }, [pathname]);
 
   // BYOK nav hint — only when neither browser key nor dev env fallback exists.
@@ -115,10 +117,30 @@ export function AppShell({
     if (e.key === "Escape") setMenuOpen(false);
   }, []);
 
+  const markNav = () => setNavPending(true);
+
   return (
-    <header className="sticky top-0 z-40 border-b border-line-subtle bg-ink-950/85 backdrop-blur-sm">
+    <header className="sticky top-0 z-40 border-b border-line-subtle bg-ink-950/85 backdrop-blur-sm relative">
+      {navPending && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label="Navigating"
+          className="pointer-events-none absolute inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-ink-800"
+        >
+          <div
+            className="h-full w-full bg-gradient-to-r from-transparent via-teal-400 to-transparent"
+            style={{ animation: "shimmer 1.1s ease-in-out infinite" }}
+          />
+        </div>
+      )}
       <div className="mx-auto flex h-14 w-full max-w-7xl items-center gap-4 px-6 md:px-10">
-        <Link href="/" aria-label="AI Judge home" className="shrink-0">
+        <Link
+          href="/"
+          aria-label="AI Judge home"
+          className="shrink-0"
+          onClick={markNav}
+        >
           <BrandMark />
         </Link>
 
@@ -127,6 +149,7 @@ export function AppShell({
             <Link
               key={link.href}
               href={link.href}
+              onClick={markNav}
               className={linkClasses(isActive(pathname, link.href, "match" in link ? link.match : undefined))}
               aria-current={isActive(pathname, link.href, "match" in link ? link.match : undefined) ? "page" : undefined}
             >
@@ -188,6 +211,7 @@ export function AppShell({
               <Link
                 key={link.href}
                 href={link.href}
+                onClick={markNav}
                 className={cn(
                   linkClasses(isActive(pathname, link.href, "match" in link ? link.match : undefined)),
                   "px-3 py-2.5",
