@@ -239,6 +239,19 @@ dialog::backdrop {
   }
 }
 
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+
 @keyframes drawer-in {
   from {
     transform: translateX(16px);

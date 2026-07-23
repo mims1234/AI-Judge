@@ -103,17 +103,28 @@ export function PlaygroundApp({
     awaitingReply ||
     state.connection === "hydrating";
 
-  // Clear the post-send wait cue once streaming starts or status settles.
+  // Clear the post-send wait cue once tokens arrive or the session errors.
+  // Keep the cue through empty streaming so the typing animation stays up
+  // until the first characters show.
   useEffect(() => {
     if (!awaitingReply) return;
+    if (state.status === "error") {
+      setAwaitingReply(false);
+      return;
+    }
     if (
-      state.status === "streaming" ||
-      state.status === "error" ||
-      state.messages.some((m) => m.role === "assistant" && m.streaming)
+      state.messages.some(
+        (m) => m.role === "assistant" && m.streaming && m.content.length > 0,
+      )
     ) {
       setAwaitingReply(false);
     }
   }, [awaitingReply, state.status, state.messages]);
+
+  const replying =
+    awaitingReply ||
+    state.status === "streaming" ||
+    state.messages.some((m) => m.role === "assistant" && m.streaming);
 
   const startSession = useCallback(
     async (candidate: string, judgeIds: string[]) => {
@@ -267,10 +278,12 @@ export function PlaygroundApp({
             messages={state.messages}
             candidateModelId={modelLabel}
             awaitingReply={awaitingReply}
+            streaming={replying}
           />
           <ChatComposer
             disabled={busy || state.status === "error"}
             judging={judging || state.status === "judging"}
+            replying={replying}
             canJudge={hasAssistant && !busy}
             userTurns={userTurns}
             onSend={sendMessage}
