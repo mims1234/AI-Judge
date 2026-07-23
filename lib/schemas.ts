@@ -74,6 +74,11 @@ export type JudgeOutput = z.infer<typeof JudgeOutputSchema>;
 /**
  * Hand-written JSON Schema for OpenRouter structured outputs.
  * Stable wire schema — not runtime-derived from Zod.
+ *
+ * Numeric bounds (`minimum`/`maximum`) are kept here for documentation and
+ * local Zod validation, but stripped before the OpenRouter wire call via
+ * {@link stripNumericBoundsForWire} — Anthropic's structured-output path
+ * rejects those keywords (HTTP 400 via OpenRouter).
  */
 export const judgeOutputJsonSchema = {
   type: "object",
@@ -118,6 +123,48 @@ export const judgeOutputJsonSchema = {
     one_best_improvement: { type: "string" },
   },
 } as const;
+
+const NUMERIC_BOUND_KEYS = [
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+] as const;
+
+function typeIncludesNumeric(type: unknown): boolean {
+  if (type === "number" || type === "integer") return true;
+  if (Array.isArray(type)) {
+    return type.includes("number") || type.includes("integer");
+  }
+  return false;
+}
+
+/**
+ * Deep-clone a JSON Schema and remove numeric-bound keywords that Anthropic
+ * (via OpenRouter) rejects on number/integer nodes. Local Zod validation still
+ * enforces ranges after the model responds.
+ */
+export function stripNumericBoundsForWire(schema: unknown): unknown {
+  if (Array.isArray(schema)) {
+    return schema.map((item) => stripNumericBoundsForWire(item));
+  }
+  if (!schema || typeof schema !== "object") return schema;
+
+  const src = schema as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(src)) {
+    if (
+      typeIncludesNumeric(src.type) &&
+      (NUMERIC_BOUND_KEYS as readonly string[]).includes(key)
+    ) {
+      continue;
+    }
+    out[key] = stripNumericBoundsForWire(value);
+  }
+  return out;
+}
 
 /** Lenient OpenRouter model catalog entry (plan 04). */
 export const OpenRouterModelSchema = z
@@ -427,7 +474,10 @@ export const ChatClassificationSchema = z.object({
 });
 export type ChatClassification = z.infer<typeof ChatClassificationSchema>;
 
-/** Hand-written JSON Schema for the classification structured-output call. */
+/**
+ * Hand-written JSON Schema for the classification structured-output call.
+ * Numeric bounds are stripped on the wire — see {@link stripNumericBoundsForWire}.
+ */
 export const chatClassificationJsonSchema = {
   type: "object",
   additionalProperties: false,

@@ -32,8 +32,8 @@ export async function POST(request: Request) {
     if (!parsed.ok) return parsed.response;
     const body = parsed.data;
 
-    // Validate models against the catalog: candidate must exist; judges must
-    // support structured outputs (classification + rubric scoring require it).
+    // Validate models against the catalog. Structured outputs are preferred
+    // but not required — judges without them use the prompt + schema-retry path.
     await getModelCatalog({ apiKey: userKey });
     const candidate = getCachedModel(body.candidate_model_id);
     if (!candidate) {
@@ -54,15 +54,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const unstructured = body.judge_pool_model_ids.filter(
-      (id) => !getCachedModel(id)?.supports_structured_outputs,
+    const missingJudges = body.judge_pool_model_ids.filter(
+      (id) => !getCachedModel(id),
     );
-    if (unstructured.length > 0) {
+    if (missingJudges.length > 0) {
       return apiError(
         "MODEL_UNAVAILABLE",
         409,
-        "Judges must support structured outputs",
-        { judges: unstructured },
+        "Unknown judge model(s) in pool",
+        { judges: missingJudges },
       );
     }
 

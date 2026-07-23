@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { getDb, prepare } from "@/lib/db";
 import { isEnvApiKeyFallbackAllowed } from "@/lib/env";
-import { OpenRouterModelSchema } from "@/lib/schemas";
+import {
+  OpenRouterModelSchema,
+  stripNumericBoundsForWire,
+} from "@/lib/schemas";
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const IDLE_WATCHDOG_MS = 90_000;
@@ -730,12 +733,14 @@ async function streamChatOnce(
     supportsStructured &&
     !opts.stripResponseFormat
   ) {
+    // Strip min/max/etc. — Anthropic structured outputs via OpenRouter 400 on
+    // those keywords. Ranges remain enforced by local Zod after parse.
     body.response_format = {
       type: "json_schema",
       json_schema: {
         name: params.responseFormat.name,
         strict: true,
-        schema: params.responseFormat.schema,
+        schema: stripNumericBoundsForWire(params.responseFormat.schema),
       },
     };
   } else if (params.responseFormat && opts.stripResponseFormat) {

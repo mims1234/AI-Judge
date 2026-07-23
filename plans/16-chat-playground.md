@@ -61,7 +61,7 @@ Nine prompts (8 categories + `general`) sharing the benchmark judge JSON contrac
 
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/chat/sessions` | Create; requires key; judges must support structured outputs |
+| `POST` | `/api/chat/sessions` | Create; requires key; structured outputs preferred but not required (schema-retry path) |
 | `GET` | `/api/chat/sessions/[id]` | Snapshot (`ChatSessionSnapshotSchema`) |
 | `POST` | `/api/chat/sessions/[id]/messages` | User message + kick `sendMessage` |
 | `POST` | `/api/chat/sessions/[id]/judge` | Kick judging round (`202`) |

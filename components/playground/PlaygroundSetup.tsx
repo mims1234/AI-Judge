@@ -12,7 +12,7 @@ import { RecentSessions } from "@/components/playground/RecentSessions";
 import { CHAT_LIMITS } from "@/lib/schemas";
 import type { RecentChatSession } from "@/lib/server/chatAnalytics";
 
-/** Setup panel — pick one candidate + 3–5 structured-output judges. */
+/** Setup panel — pick one candidate + 3–5 judges (structured outputs preferred). */
 export function PlaygroundSetup({
   models,
   catalogEmpty,
@@ -33,14 +33,13 @@ export function PlaygroundSetup({
   const [picker, setPicker] = useState<"candidate" | "judges" | null>(null);
 
   const byId = useMemo(() => new Map(models.map((m) => [m.id, m])), [models]);
-  const structured = useMemo(
-    () => models.filter((m) => m.supports_structured_outputs),
-    [models],
-  );
   const candidate = candidateId ? byId.get(candidateId) : null;
   const judges = judgeIds
     .map((id) => byId.get(id))
     .filter((m): m is PickerModel => !!m);
+  const unstructuredJudgeCount = judges.filter(
+    (j) => !j.supports_structured_outputs,
+  ).length;
 
   const selfJudging =
     !!candidateId && judgeIds.includes(candidateId);
@@ -119,8 +118,8 @@ export function PlaygroundSetup({
         </div>
         {judges.length === 0 ? (
           <p className="text-sm text-dim">
-            Choose {CHAT_LIMITS.MIN_JUDGES}–{CHAT_LIMITS.MAX_JUDGES} models that
-            support structured outputs.
+            Choose {CHAT_LIMITS.MIN_JUDGES}–{CHAT_LIMITS.MAX_JUDGES} models.
+            Structured outputs preferred; others use the JSON repair path.
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
@@ -132,12 +131,32 @@ export function PlaygroundSetup({
                 <span className="truncate font-mono text-xs text-body">
                   {j.id}
                 </span>
-                <Badge tone="neutral">structured</Badge>
+                {j.supports_structured_outputs ? (
+                  <Badge tone="teal" title="Advertises structured outputs">
+                    structured
+                  </Badge>
+                ) : (
+                  <Badge
+                    tone="warn"
+                    title="No structured outputs — schema-retry path will be used"
+                  >
+                    prompt JSON
+                  </Badge>
+                )}
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {unstructuredJudgeCount > 0 && (
+        <p className="rounded-md border border-warn-400/30 bg-ink-900 px-3 py-2 text-sm text-warn-400">
+          {unstructuredJudgeCount === 1
+            ? "1 judge does not advertise structured outputs"
+            : `${unstructuredJudgeCount} judges do not advertise structured outputs`}
+          ; judging still works via the schema-retry path.
+        </p>
+      )}
 
       {selfJudging && (
         <p className="rounded-md border border-warn-400/30 bg-ink-900 px-3 py-2 text-sm text-warn-400">
@@ -197,12 +216,13 @@ export function PlaygroundSetup({
         {picker === "judges" && (
           <div className="flex flex-col gap-3">
             <p className="text-sm text-dim">
-              Structured-output models only. Select {CHAT_LIMITS.MIN_JUDGES}–
-              {CHAT_LIMITS.MAX_JUDGES}. The candidate cannot also be a judge.
+              Select {CHAT_LIMITS.MIN_JUDGES}–{CHAT_LIMITS.MAX_JUDGES} models.
+              The candidate cannot also be a judge. Models without structured
+              outputs are allowed (schema-retry path).
             </p>
             <ModelPicker
               variant="palette"
-              models={structured.filter((m) => m.id !== candidateId)}
+              models={models.filter((m) => m.id !== candidateId)}
               selectedIds={judgeIds}
               maxSelection={CHAT_LIMITS.MAX_JUDGES}
               onToggle={(id) => {
