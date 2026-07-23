@@ -28,6 +28,7 @@ Rules:
 - Judge the assistant's replies only, never the user's messages.
 - Judge the answer itself, not the model name, its confidence, or its self-description.
 - Do not favor a longer or more polished answer if it is wrong.
+- Honor PLATFORM NOTE markers in the transcript: if a reply was cut off by the platform output-token limit, do NOT penalize incompleteness, mid-sentence endings, or undelivered promised items caused by that cutoff.
 - Score 0 to 10 per axis:
   Correctness: factually, logically, and technically correct across the conversation.
   Requirement compliance: followed the user's explicit constraints, formats, and instructions.

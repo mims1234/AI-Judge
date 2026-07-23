@@ -133,15 +133,20 @@ export function useChatStream(sessionId: string | null) {
         };
 
         switch (evt.event) {
-          case "chat.session.status":
+          case "chat.session.status": {
+            const prevStatus = prev.status;
             next.status = evt.data.status;
             next.totalCostUsd = evt.data.totalCostUsd;
             // Stop EventSource auto-reconnect spam when the session is idle.
-            if (
-              evt.data.status === "active" ||
+            // Do NOT close on a bare `active` after judged/error — that is the
+            // continue-after-judge re-open (or a replay of it). Closing there
+            // kills the stream before assistant deltas arrive.
+            const idleAfterWork =
               evt.data.status === "judged" ||
-              evt.data.status === "error"
-            ) {
+              evt.data.status === "error" ||
+              (evt.data.status === "active" &&
+                (prevStatus === "streaming" || prevStatus === "judging"));
+            if (idleAfterWork) {
               queueMicrotask(() => {
                 if (genRef.current !== gen) return;
                 esRef.current?.close();
@@ -154,6 +159,7 @@ export function useChatStream(sessionId: string | null) {
               });
             }
             break;
+          }
           case "chat.message.user":
             if (!next.messages.some((m) => m.id === evt.data.messageId)) {
               next.messages.push({

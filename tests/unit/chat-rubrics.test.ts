@@ -18,6 +18,7 @@ describe("chat rubrics (plans/16 §B2)", () => {
       expect(chatRubricFor(cat)).toBe(CHAT_RUBRICS[cat]);
       expect(chatRubricFor(cat)).toContain(cat.toUpperCase());
       expect(chatRubricFor(cat)).toContain("Judge the assistant's replies only");
+      expect(chatRubricFor(cat)).toContain("PLATFORM NOTE");
       expect(chatRubricFor(cat)).toContain('"scores"');
       expect(chatRubricFor(cat)).toContain('"verdict"');
       expect(chatRubricFor(cat)).toContain("Respond in English only");

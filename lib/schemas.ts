@@ -493,12 +493,13 @@ export const chatClassificationJsonSchema = {
 export const CHAT_LIMITS = {
   MAX_USER_TURNS: 10,
   MAX_MESSAGE_CHARS: 8_000,
-  MAX_TRANSCRIPT_CHARS: 32_000,
+  /** Room for multi-turn chats with long (8k-token) assistant replies. */
+  MAX_TRANSCRIPT_CHARS: 96_000,
   MIN_JUDGES: 3,
   MAX_JUDGES: 5,
-  ASSISTANT_MAX_TOKENS: 2048,
+  ASSISTANT_MAX_TOKENS: 8192,
   CLASSIFY_MAX_TOKENS: 512,
-  JUDGE_MAX_TOKENS: 1536,
+  JUDGE_MAX_TOKENS: 2048,
 } as const;
 
 export const ChatSessionStatusSchema = z.enum([

@@ -224,8 +224,18 @@ describe("chat playground engine (plans/16 §B2)", () => {
     expect(rounds.map((x) => x.r)).toEqual([1, 2]);
   });
 
-  it("reopens a judged session so the user can keep chatting", () => {
+  it("reopens a judged session so the user can keep chatting", async () => {
     tdb = createTestDb();
+    mock = await startMockOpenRouter();
+    process.env.OPENROUTER_BASE_URL = mock.url;
+    resetEnvCache();
+    mock.setRoutes([
+      {
+        includes: '"model":"mock/cand-a"',
+        behavior: { kind: "sse", fixtureRelPath: "sse/chat-assistant-reply.sse" },
+      },
+    ]);
+
     const sessionId = seedSession({ status: "judged", category: "coding" });
     prepare(
       `UPDATE chat_sessions SET finished_at = ?, median_score = 7.5 WHERE id = ?`,
@@ -236,6 +246,11 @@ describe("chat playground engine (plans/16 §B2)", () => {
     ).run(randomUUID(), sessionId, Date.now(), randomUUID(), sessionId, Date.now());
 
     const engine = getChatEngine();
+    const seen: string[] = [];
+    engine.events(sessionId).on("event", (evt: { type: string }) => {
+      seen.push(evt.type);
+    });
+
     const { messageId } = engine.postUserMessage(sessionId, "follow up");
     expect(messageId).toBeTruthy();
 
@@ -252,6 +267,39 @@ describe("chat playground engine (plans/16 §B2)", () => {
     // Prior score kept until the next judging round.
     expect(row.median_score).toBe(7.5);
     expect(row.category).toBe("coding");
+
+    // Continue-after-judge must still stream a full assistant reply.
+    engine.sendMessage(sessionId, "test-key");
+    await waitFor(
+      () =>
+        (
+          prepare(`SELECT status FROM chat_sessions WHERE id = ?`).get(sessionId) as {
+            status: string;
+          }
+        ).status === "active" &&
+        (
+          prepare(
+            `SELECT COUNT(*) AS n FROM chat_messages
+             WHERE session_id = ? AND role = 'assistant' AND length(content) > 0`,
+          ).get(sessionId) as { n: number }
+        ).n === 2,
+      "follow-up assistant reply",
+    );
+    expect(seen).toContain("chat.message.delta");
+    expect(seen).toContain("chat.message.complete");
+
+    const followUp = prepare(
+      `SELECT finish_reason, content FROM chat_messages
+       WHERE session_id = ? AND role = 'assistant' AND length(content) > 0
+       ORDER BY created_at DESC LIMIT 1`,
+    ).get(sessionId) as { finish_reason: string | null; content: string };
+    expect(followUp.content.length).toBeGreaterThan(0);
+    expect(followUp.finish_reason).toBe("stop");
+
+    const cols = prepare(`PRAGMA table_info(chat_messages)`).all() as Array<{
+      name: string;
+    }>;
+    expect(cols.some((c) => c.name === "finish_reason")).toBe(true);
   });
 
   it("keeps prior median when a re-judge panel fully fails", async () => {

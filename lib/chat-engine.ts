@@ -96,7 +96,11 @@ type MessageRow = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  finish_reason?: string | null;
 };
+
+const PLATFORM_TRUNCATION_NOTE =
+  "[PLATFORM NOTE: The response above was cut off by the platform output-token limit, not by the model. Do NOT penalize it for being incomplete or ending mid-sentence.]";
 
 type JudgeVote = { judgeModelId: string; category: ChatCategory; confidence: number };
 
@@ -131,7 +135,14 @@ export function decideCategory(votes: JudgeVote[]): ChatCategory {
 /** Render the transcript for judge prompts, capped head+tail at the char cap. */
 export function renderTranscript(messages: MessageRow[]): string {
   const full = messages
-    .map((m) => `${m.role === "user" ? "USER" : "ASSISTANT"}:\n${m.content}`)
+    .map((m) => {
+      const role = m.role === "user" ? "USER" : "ASSISTANT";
+      const body = `${role}:\n${m.content}`;
+      if (m.role === "assistant" && m.finish_reason === "length") {
+        return `${body}\n${PLATFORM_TRUNCATION_NOTE}`;
+      }
+      return body;
+    })
     .join("\n\n");
   const cap = CHAT_LIMITS.MAX_TRANSCRIPT_CHARS;
   if (full.length <= cap) return full;
@@ -287,7 +298,7 @@ class ChatEngineImpl implements ChatEngine {
 
   private getTranscript(sessionId: string): MessageRow[] {
     return prepare(
-      `SELECT id, role, content FROM chat_messages
+      `SELECT id, role, content, finish_reason FROM chat_messages
        WHERE session_id = ? ORDER BY created_at ASC, rowid ASC`,
     ).all(sessionId) as MessageRow[];
   }
@@ -422,7 +433,8 @@ class ChatEngineImpl implements ChatEngine {
       getDb().transaction(() => {
         prepare(
           `UPDATE chat_messages
-           SET content = ?, prompt_tokens = ?, completion_tokens = ?, cost_usd = ?, latency_ms = ?
+           SET content = ?, prompt_tokens = ?, completion_tokens = ?,
+               cost_usd = ?, latency_ms = ?, finish_reason = ?
            WHERE id = ?`,
         ).run(
           result.text,
@@ -430,6 +442,7 @@ class ChatEngineImpl implements ChatEngine {
           result.usage.completion_tokens,
           result.usage.cost_usd,
           result.latency_ms,
+          result.finish_reason,
           assistantId,
         );
         prepare(

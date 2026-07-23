@@ -504,12 +504,20 @@ function migration004(db: Database): void {
   `);
 }
 
+/** Persist OpenRouter finish_reason so judges can ignore platform truncations. */
+function migration005(db: Database): void {
+  db.exec(`
+    ALTER TABLE chat_messages ADD COLUMN finish_reason TEXT;
+  `);
+}
+
 /** Append-only migration list. Never edit an applied migration — add a new one. */
 const MIGRATIONS: Migration[] = [
   { id: 1, name: "001_initial_schema", up: migration001 },
   { id: 2, name: "002_seed_mini_benchmark_v1", up: migration002 },
   { id: 3, name: "003_seed_keel_v1", up: migration003 },
   { id: 4, name: "004_chat_playground", up: migration004 },
+  { id: 5, name: "005_chat_message_finish_reason", up: migration005 },
 ];
 
 function runMigrations(db: Database): void {

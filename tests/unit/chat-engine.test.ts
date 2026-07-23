@@ -90,6 +90,34 @@ describe("renderTranscript (plans/16 §B2)", () => {
     expect(out.startsWith("USER:\nxxx")).toBe(true);
     expect(out.endsWith("xxx")).toBe(true);
   });
+
+  it("appends PLATFORM NOTE only when finish_reason is length", () => {
+    const truncated = renderTranscript([
+      { id: "1", role: "user", content: "list 10" },
+      {
+        id: "2",
+        role: "assistant",
+        content: "1. a\n2. b",
+        finish_reason: "length",
+      },
+    ]);
+    expect(truncated).toContain("ASSISTANT:\n1. a\n2. b");
+    expect(truncated).toContain(
+      "[PLATFORM NOTE: The response above was cut off by the platform output-token limit",
+    );
+
+    const normal = renderTranscript([
+      { id: "1", role: "user", content: "hi" },
+      {
+        id: "2",
+        role: "assistant",
+        content: "hello",
+        finish_reason: "stop",
+      },
+    ]);
+    expect(normal).toBe("USER:\nhi\n\nASSISTANT:\nhello");
+    expect(normal).not.toContain("PLATFORM NOTE");
+  });
 });
 
 describe("self-judging guards", () => {
