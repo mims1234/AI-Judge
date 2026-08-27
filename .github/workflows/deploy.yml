@@ -5,7 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Same org self-hosted runner as mazoku-card-view-scrapper-2026.
+# Personal repo (mims1234/AI-Judge). Needs a repo-level self-hosted runner
+# on the VPS — the Tempest-Developers org runner will not claim these jobs.
 # App path: /root/mims/AI-Judge   PM2 name: ai-judge   loopback: 127.0.0.1:3017
 #
 # Optional repository secrets (Settings → Secrets and variables → Actions):
