@@ -17,7 +17,6 @@ import { StatusDot } from "@/components/ui/StatusDot";
 
 export type ApiKeyStatus = {
   serverConfigured: boolean;
-  maskedTail: string | null;
   envFallbackAllowed: boolean;
 };
 
@@ -42,11 +41,9 @@ export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
   const sourceLabel = browserConfigured
     ? "Your key (stored in this browser)"
     : status.serverConfigured
-      ? "Server key (.env.local, dev)"
+      ? "Server key"
       : null;
-  const maskedTail = browserConfigured
-    ? maskApiKey(browserKey)
-    : status.maskedTail;
+  const maskedTail = browserConfigured ? maskApiKey(browserKey) : null;
 
   const testConnection = async (keyOverride?: string) => {
     setTesting(true);
@@ -148,11 +145,8 @@ export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
 
       {status.envFallbackAllowed && status.serverConfigured && !browserConfigured && (
         <p className="mt-2 text-sm leading-6 text-dim">
-          Dev convenience: falling back to{" "}
-          <code className="font-mono text-body">OPENROUTER_API_KEY</code> from{" "}
-          <code className="font-mono text-body">.env.local</code>. Set{" "}
-          <code className="font-mono text-body">AI_JUDGE_MODE=prod</code> to
-          force the browser-key UX locally.
+          A server key is available for local development. Paste your own key
+          below to use it instead.
         </p>
       )}
 

@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import { getDb, prepare } from "@/lib/db";
 import { isEnvApiKeyFallbackAllowed } from "@/lib/env";
 import { DEFAULT_APP_SETTINGS, AppSettingsSchema, type AppSettings } from "@/lib/settings";
@@ -37,53 +36,37 @@ export function saveAppSettings(settings: AppSettings): AppSettings {
 export type KeyStatusInfo = {
   /** Env key is present and usable (dev mode only). */
   serverConfigured: boolean;
-  maskedTail: string | null; // last 4 characters only — never the key itself
   /** True when AI_JUDGE_MODE=dev (or unset under non-prod NODE_ENV). */
   envFallbackAllowed: boolean;
 };
 
-/** Server-side env key presence + masked tail (BYOK: browser key is client-only). */
+/**
+ * Whether a server env key can be used as a fallback.
+ * Never includes key material — last-4 / paths must not reach the browser.
+ */
 export function getKeyStatusInfo(): KeyStatusInfo {
   const envFallbackAllowed = isEnvApiKeyFallbackAllowed();
   const key = process.env.OPENROUTER_API_KEY ?? "";
   const configured = envFallbackAllowed && key.trim().length > 0;
   return {
     serverConfigured: configured,
-    maskedTail: configured ? key.slice(-4) : null,
     envFallbackAllowed,
   };
 }
 
 export type DbStats = {
-  path: string;
-  sizeBytes: number | null;
-  walMode: boolean;
   modelsCount: number;
   modelsFetchedAt: string | null; // ISO
 };
 
+/** Public-safe catalog facts only — never filesystem paths, size, or journal mode. */
 export function getDbStats(): DbStats {
-  const db = getDb();
-  const path = db.name;
-  let sizeBytes: number | null = null;
-  try {
-    sizeBytes = fs.statSync(path).size;
-  } catch {
-    sizeBytes = null;
-  }
-  const journal = db.pragma("journal_mode", { simple: true }) as string;
   const models = prepare(
     `SELECT COUNT(*) AS n, MAX(fetched_at) AS max_at FROM models_cache`,
   ).get() as { n: number; max_at: number | null };
 
   return {
-    path,
-    sizeBytes,
-    walMode: journal === "wal",
     modelsCount: models.n,
     modelsFetchedAt: models.max_at ? new Date(models.max_at).toISOString() : null,
   };
 }
-
-/** @deprecated use formatBytes from `@/lib/format` — kept as re-export for server callers. */
-export { formatBytes } from "@/lib/format";

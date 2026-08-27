@@ -13,8 +13,7 @@ export async function POST(request: Request) {
   if (!hasApiKey(userKey)) {
     return Response.json({
       ok: false,
-      error:
-        "No API key available — paste your OpenRouter key in Settings, or set OPENROUTER_API_KEY in .env.local for local development.",
+      error: "No API key available — paste your OpenRouter key in Settings.",
     });
   }
 
@@ -29,7 +28,7 @@ export async function POST(request: Request) {
       return Response.json({
         ok: false,
         latencyMs,
-        error: `Key rejected — ${status.message}`,
+        error: "Key rejected — check the key and try again.",
       });
     }
     return Response.json({
@@ -37,11 +36,11 @@ export async function POST(request: Request) {
       latencyMs,
       error: "No API key available.",
     });
-  } catch (err) {
+  } catch {
     return Response.json({
       ok: false,
       latencyMs: Date.now() - started,
-      error: err instanceof Error ? err.message : "Could not reach OpenRouter",
+      error: "Could not reach OpenRouter",
     });
   }
 }

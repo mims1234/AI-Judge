@@ -5,6 +5,7 @@ import {
   resolveApiKey,
 } from "@/lib/openrouter";
 import { getAiJudgeMode, resetEnvCache } from "@/lib/env";
+import { getKeyStatusInfo } from "@/lib/server/appSettings";
 
 function setNodeEnv(value: string) {
   Object.defineProperty(process.env, "NODE_ENV", {
@@ -106,6 +107,42 @@ describe("resolveApiKey (BYOK precedence)", () => {
     process.env.AI_JUDGE_MODE = "production";
     resetEnvCache();
     expect(getAiJudgeMode()).toBe("prod");
+  });
+});
+
+describe("getKeyStatusInfo does not leak secrets", () => {
+  const prevKey = process.env.OPENROUTER_API_KEY;
+  const prevMode = process.env.AI_JUDGE_MODE;
+  const prevNodeEnv = process.env.NODE_ENV;
+
+  beforeEach(() => {
+    delete process.env.AI_JUDGE_MODE;
+    resetEnvCache();
+  });
+
+  afterEach(() => {
+    if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY;
+    else process.env.OPENROUTER_API_KEY = prevKey;
+    if (prevMode === undefined) delete process.env.AI_JUDGE_MODE;
+    else process.env.AI_JUDGE_MODE = prevMode;
+    setNodeEnv(prevNodeEnv ?? "test");
+    resetEnvCache();
+  });
+
+  it("never serializes key material or last-4 tails", () => {
+    setNodeEnv("development");
+    process.env.AI_JUDGE_MODE = "dev";
+    process.env.OPENROUTER_API_KEY = "sk-or-secret-whe4";
+    resetEnvCache();
+    const info = getKeyStatusInfo();
+    expect(info).toEqual({
+      serverConfigured: true,
+      envFallbackAllowed: true,
+    });
+    const serialized = JSON.stringify(info);
+    expect(serialized).not.toContain("sk-or");
+    expect(serialized).not.toContain("whe4");
+    expect(serialized).not.toContain("maskedTail");
   });
 });
 

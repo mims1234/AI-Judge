@@ -3,18 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/client/apiKey";
-import { formatBytes, formatRelativeTime } from "@/lib/format";
+import { formatRelativeTime } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 
 export type DataCardStats = {
-  path: string;
-  sizeBytes: number | null;
-  walMode: boolean;
   modelsCount: number;
   modelsFetchedAt: string | null;
 };
 
-/** Read-only operator facts + models-cache refresh (plans/08 §4.2). */
+/** Catalog cache age + refresh. Host paths and DB internals stay off the page. */
 export function DataCard({ stats }: { stats: DataCardStats }) {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
@@ -39,12 +36,6 @@ export function DataCard({ stats }: { stats: DataCardStats }) {
       </h2>
 
       <dl className="mt-3 flex flex-col gap-2.5 text-sm">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <dt className="text-dim">Database</dt>
-          <dd className="font-mono text-xs text-body">
-            {stats.path} · {formatBytes(stats.sizeBytes)} · {stats.walMode ? "WAL" : "journal"}
-          </dd>
-        </div>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <dt className="text-dim">Models cache</dt>
           <dd className="flex items-center gap-2 font-mono text-xs text-body">
