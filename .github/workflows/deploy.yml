@@ -44,10 +44,7 @@ jobs:
 
           echo "--- PM2 home: ${PM2_HOME} (HOME=${HOME}) ---"
 
-          echo "--- Stopping ai-judge only ---"
-          pm2 stop ai-judge || true
-
-          echo "--- Pulling latest code ---"
+          echo "--- Pulling latest code (app stays up until build succeeds) ---"
           git fetch origin
           git reset --hard origin/main
 
@@ -77,7 +74,34 @@ jobs:
               os.chmod(env_path, 0o600)
 
           if env_path.is_file() and not has_any_secret:
-              print("GitHub secrets unset — keeping existing .env.local")
+              # Fill blank URL/path so `next build` prerender does not fail.
+              # Do not print values.
+              existing_lines = env_path.read_text(encoding="utf-8").splitlines()
+              keys: dict[str, str] = {}
+              for raw in existing_lines:
+                  if not raw.strip() or raw.lstrip().startswith("#") or "=" not in raw:
+                      continue
+                  key, value = raw.split("=", 1)
+                  keys[key] = value
+              changed = False
+              if not str(keys.get("OPENROUTER_BASE_URL", "")).strip():
+                  keys["OPENROUTER_BASE_URL"] = "https://openrouter.ai/api/v1"
+                  changed = True
+              if not str(keys.get("DATABASE_PATH", "")).strip():
+                  keys["DATABASE_PATH"] = "./data/ai-judge.sqlite"
+                  changed = True
+              if changed:
+                  write_env([
+                      "# Existing VPS .env.local — blank URL/path filled with defaults",
+                      f"AI_JUDGE_MODE={keys.get('AI_JUDGE_MODE', '')}",
+                      f"OPENROUTER_API_KEY={keys.get('OPENROUTER_API_KEY', '')}",
+                      f"OPENROUTER_BASE_URL={keys['OPENROUTER_BASE_URL']}",
+                      f"DATABASE_PATH={keys['DATABASE_PATH']}",
+                      f"PORT={keys.get('PORT', '3017')}",
+                  ])
+                  print("GitHub secrets unset — kept .env.local; filled blank URL/path defaults")
+              else:
+                  print("GitHub secrets unset — keeping existing .env.local")
           elif env_path.is_file() and has_any_secret:
               existing: dict[str, str] = {}
               for raw in env_path.read_text(encoding="utf-8").splitlines():
@@ -137,8 +161,9 @@ jobs:
           cd "$APP_DIR"
 
           echo "--- Reloading ai-judge from ecosystem.config.js ---"
-          # Plain "pm2 restart" ignores changed args / env. Delete + start
-          # from this repo's ecosystem. Do NOT use --update-env.
+          # Stop only after a successful build. Delete + start from this
+          # repo's ecosystem. Do NOT use --update-env.
+          pm2 stop ai-judge || true
           pm2 delete ai-judge || true
           pm2 start ecosystem.config.js
           pm2 save

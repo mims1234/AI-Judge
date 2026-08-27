@@ -34,14 +34,20 @@ let cached: Env | null = null;
  * Call from server boot / DB open / scripts — never from client code.
  * OPENROUTER_API_KEY is optional (BYOK in production).
  */
+/** Empty .env.local values must not block Zod defaults (Next loads `KEY=` as ""). */
+function present(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 export function getEnv(): Env {
   if (cached) return cached;
 
   const rawMode = (process.env.AI_JUDGE_MODE ?? "").trim().toLowerCase();
   const result = EnvSchema.safeParse({
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ?? "",
-    OPENROUTER_BASE_URL: process.env.OPENROUTER_BASE_URL,
-    DATABASE_PATH: process.env.DATABASE_PATH,
+    OPENROUTER_BASE_URL: present(process.env.OPENROUTER_BASE_URL),
+    DATABASE_PATH: present(process.env.DATABASE_PATH),
     AI_JUDGE_MODE: rawMode === "development" ? "dev" : rawMode === "production" ? "prod" : rawMode,
   });
 

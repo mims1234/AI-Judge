@@ -164,4 +164,24 @@ describe("getEnv allows missing OPENROUTER_API_KEY", () => {
     expect(env.OPENROUTER_BASE_URL.length).toBeGreaterThan(0);
     expect(() => new URL(env.OPENROUTER_BASE_URL)).not.toThrow();
   });
+
+  it("treats blank OPENROUTER_BASE_URL and DATABASE_PATH as defaults", async () => {
+    const prevUrl = process.env.OPENROUTER_BASE_URL;
+    const prevPath = process.env.DATABASE_PATH;
+    process.env.OPENROUTER_BASE_URL = "";
+    process.env.DATABASE_PATH = "   ";
+    resetEnvCache();
+    try {
+      const { getEnv } = await import("@/lib/env");
+      const env = getEnv();
+      expect(env.OPENROUTER_BASE_URL).toBe("https://openrouter.ai/api/v1");
+      expect(env.DATABASE_PATH).toBe("./data/ai-judge.sqlite");
+    } finally {
+      if (prevUrl === undefined) delete process.env.OPENROUTER_BASE_URL;
+      else process.env.OPENROUTER_BASE_URL = prevUrl;
+      if (prevPath === undefined) delete process.env.DATABASE_PATH;
+      else process.env.DATABASE_PATH = prevPath;
+      resetEnvCache();
+    }
+  });
 });
