@@ -4,7 +4,7 @@ import { ScoreDistributionStrip } from "@/components/charts/ScoreDistributionStr
 import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { cn } from "@/lib/cn";
 import { formatScore } from "@/lib/format";
-import { CATEGORY_ORDER } from "@/lib/schemas";
+import { presentCategories } from "@/lib/schemas";
 import type { LeaderboardRow } from "@/lib/scoring";
 
 export type ScoreMatrixProps = {
@@ -37,6 +37,9 @@ function stripMarks(median: number, spread: number) {
 /** Category × model score matrix with best-in-row highlight (plans/10 §3.1). */
 export function ScoreMatrix({ rows }: ScoreMatrixProps) {
   if (rows.length === 0) return null;
+  const categories = presentCategories(
+    rows.flatMap((r) => Object.keys(r.category_medians)),
+  );
 
   return (
     <section aria-labelledby="score-matrix-heading" className="flex flex-col gap-3">
@@ -71,7 +74,7 @@ export function ScoreMatrix({ rows }: ScoreMatrixProps) {
             </tr>
           </thead>
           <tbody>
-            {CATEGORY_ORDER.map((cat) => {
+            {categories.map((cat) => {
               const scores = rows.map((r) => r.category_medians[cat] ?? null);
               const numeric = scores.filter((s): s is number => s != null);
               const best = numeric.length ? Math.max(...numeric) : null;

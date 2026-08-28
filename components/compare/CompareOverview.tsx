@@ -8,7 +8,7 @@ import {
   formatScore,
   formatUsd,
 } from "@/lib/format";
-import { CATEGORY_ORDER } from "@/lib/schemas";
+import { presentCategories } from "@/lib/schemas";
 import type { LeaderboardRow } from "@/lib/scoring";
 import type { ModelRunStats } from "@/lib/analytics/types";
 
@@ -31,10 +31,13 @@ function scorePerDollar(median: number | null, cost: number): number | null {
 
 /** Shared radar + per-model StatCards (plans/10 §3.1). */
 export function CompareOverview({ rows, stats }: CompareOverviewProps) {
+  const categories = presentCategories(
+    rows.flatMap((r) => Object.keys(r.category_medians)),
+  );
   const series: RadarSeries[] = rows.map((r, i) => ({
     label: modelShort(r.model_id),
     color: SERIES_COLORS[i % SERIES_COLORS.length]!,
-    values: CATEGORY_ORDER.map((c) => ({
+    values: categories.map((c) => ({
       category: c,
       score: r.category_medians[c] ?? null,
     })),
@@ -50,7 +53,7 @@ export function CompareOverview({ rows, stats }: CompareOverviewProps) {
 
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
         <CategoryRadar
-          categories={[...CATEGORY_ORDER]}
+          categories={[...categories]}
           series={series}
           size={260}
           visibleLabels={visible}

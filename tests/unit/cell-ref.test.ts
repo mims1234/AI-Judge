@@ -65,10 +65,11 @@ describe("parseTrialParam", () => {
 });
 
 describe("isCategory", () => {
-  it("accepts the 8 enum values", () => {
+  it("accepts official and catch-all pack types", () => {
     expect(isCategory("roleplay")).toBe(true);
     expect(isCategory("judging")).toBe(true);
-    expect(isCategory("general")).toBe(false);
+    expect(isCategory("general")).toBe(true);
+    expect(isCategory("other")).toBe(true);
     expect(isCategory("")).toBe(false);
   });
 });

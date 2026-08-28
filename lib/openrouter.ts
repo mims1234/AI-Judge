@@ -7,7 +7,9 @@ import {
 } from "@/lib/schemas";
 
 const CACHE_TTL_MS = 60 * 60 * 1000;
-const IDLE_WATCHDOG_MS = 90_000;
+/** Silence before we give up on a hung stream. Busy / thinking models often sit quiet. */
+export const IDLE_WATCHDOG_MS = 180_000;
+export const DEFAULT_DEADLINE_MS = 600_000;
 const DEFAULT_BASE = "https://openrouter.ai/api/v1";
 
 export type KeyStatus =
@@ -18,6 +20,7 @@ export type KeyStatus =
       label?: string;
       usage_usd?: number;
       limit_usd?: number | null;
+      limit_remaining?: number | null;
     };
 
 export class OpenRouterError extends Error {
@@ -75,10 +78,14 @@ export interface StreamChatParams {
   signal: AbortSignal;
   onDelta: (textDelta: string) => void;
   onRetry?: (attempt: number, delayMs: number, reason: string) => void;
-  /** Overall deadline ms; default 600_000 candidates / caller sets 240_000 for judges. */
+  /** Overall deadline ms; default 600_000 for candidates and judges. */
   deadlineMs?: number;
+  /** Idle-byte abort; defaults to IDLE_WATCHDOG_MS, capped by deadlineMs. */
+  idleWatchdogMs?: number;
   /** When true, allow retry after partial deltas (judge calls). */
   allowRetryAfterPartial?: boolean;
+  /** Total attempts including the first. Defaults to the Settings maxRetries. */
+  maxRetries?: number;
   /** Explicit OpenRouter key (BYOK). Falls back to env in non-production. */
   apiKey?: string | null;
 }
@@ -166,13 +173,19 @@ export async function checkKeyStatus(
   }
 
   const json = (await res.json()) as {
-    data?: { label?: string; usage?: number; limit?: number | null };
+    data?: {
+      label?: string;
+      usage?: number;
+      limit?: number | null;
+      limit_remaining?: number | null;
+    };
   };
   return {
     state: "ok",
     label: json.data?.label,
     usage_usd: json.data?.usage,
     limit_usd: json.data?.limit ?? null,
+    limit_remaining: json.data?.limit_remaining ?? null,
   };
 }
 
@@ -501,6 +514,9 @@ function classifyHttpError(
       retryAfterMs,
     });
   }
+  if (status === 408) {
+    return new OpenRouterError("timeout", bodyText || "HTTP 408", { status });
+  }
   if (status >= 500) {
     return new OpenRouterError("upstream", bodyText || `HTTP ${status}`, {
       status,
@@ -544,6 +560,7 @@ async function parseSseStream(
   body: ReadableStream<Uint8Array>,
   onDelta: (d: string) => void,
   signal: AbortSignal,
+  idleWatchdogMs: number,
 ): Promise<{
   text: string;
   finish_reason: string;
@@ -569,6 +586,7 @@ async function parseSseStream(
   };
   let lastByteAt = Date.now();
   let idleTimer: ReturnType<typeof setInterval> | null = null;
+  let idleTripped = false;
 
   const clearIdle = () => {
     if (idleTimer) clearInterval(idleTimer);
@@ -576,7 +594,8 @@ async function parseSseStream(
   };
 
   idleTimer = setInterval(() => {
-    if (Date.now() - lastByteAt > IDLE_WATCHDOG_MS) {
+    if (Date.now() - lastByteAt > idleWatchdogMs) {
+      idleTripped = true;
       clearIdle();
       void reader.cancel().catch(() => undefined);
     }
@@ -669,6 +688,12 @@ async function parseSseStream(
       }
     }
     if (buffer.trim()) processFrame(buffer);
+    if (idleTripped) {
+      throw new OpenRouterError(
+        "timeout",
+        `idle stream watchdog (${Math.round(idleWatchdogMs / 1000)}s)`,
+      );
+    }
   } catch (err) {
     const attach = (e: OpenRouterError) => {
       (e as OpenRouterError & { deliveredDeltas?: boolean }).deliveredDeltas =
@@ -676,12 +701,15 @@ async function parseSseStream(
       return e;
     };
     if (err instanceof OpenRouterError) throw attach(err);
-    if (signal.aborted) throw attach(new OpenRouterError("aborted", "aborted"));
-    if (Date.now() - lastByteAt > IDLE_WATCHDOG_MS) {
+    if (idleTripped || Date.now() - lastByteAt > idleWatchdogMs) {
       throw attach(
-        new OpenRouterError("timeout", "idle stream watchdog (90s)"),
+        new OpenRouterError(
+          "timeout",
+          `idle stream watchdog (${Math.round(idleWatchdogMs / 1000)}s)`,
+        ),
       );
     }
+    if (signal.aborted) throw attach(new OpenRouterError("aborted", "aborted"));
     throw err;
   } finally {
     clearIdle();
@@ -711,8 +739,6 @@ async function streamChatOnce(
   }
 
   const degraded: string[] = [];
-  const cached = getCachedModel(params.model);
-  const supportsStructured = cached?.supports_structured_outputs ?? false;
 
   const body: Record<string, unknown> = {
     model: params.model,
@@ -728,11 +754,10 @@ async function streamChatOnce(
     degraded.push("temperature");
   }
 
-  if (
-    params.responseFormat &&
-    supportsStructured &&
-    !opts.stripResponseFormat
-  ) {
+  if (params.responseFormat && !opts.stripResponseFormat) {
+    // Official candidates never pass responseFormat. Custom custom_answer_v1
+    // must send it even when the catalog flag is missing or stale; a 400 still
+    // retries once with the format stripped.
     // Strip min/max/etc. — Anthropic structured outputs via OpenRouter 400 on
     // those keywords. Ranges remain enforced by local Zod after parse.
     body.response_format = {
@@ -755,7 +780,11 @@ async function streamChatOnce(
     response_format: body.response_format ?? undefined,
   });
 
-  const deadlineMs = params.deadlineMs ?? 600_000;
+  const deadlineMs = params.deadlineMs ?? DEFAULT_DEADLINE_MS;
+  const idleWatchdogMs = Math.min(
+    params.idleWatchdogMs ?? IDLE_WATCHDOG_MS,
+    deadlineMs,
+  );
   const combined = AbortSignal.any([
     params.signal,
     AbortSignal.timeout(deadlineMs),
@@ -802,14 +831,19 @@ async function streamChatOnce(
 
   let parsed;
   try {
-    parsed = await parseSseStream(res.body, params.onDelta, combined);
+    parsed = await parseSseStream(
+      res.body,
+      params.onDelta,
+      combined,
+      idleWatchdogMs,
+    );
   } catch (err) {
     if (
       err instanceof OpenRouterError &&
       err.kind === "aborted" &&
       !params.signal.aborted
     ) {
-      throw new OpenRouterError("timeout", "idle stream watchdog (90s)");
+      throw new OpenRouterError("timeout", "request deadline exceeded");
     }
     throw err;
   }
@@ -827,7 +861,7 @@ async function streamChatOnce(
       completion_tokens = Math.ceil(parsed.text.length / 4);
       usage_estimated = true;
     }
-    const pricing = cached?.pricing;
+    const pricing = getCachedModel(params.model)?.pricing;
     if (pricing) {
       cost_usd =
         (prompt_tokens * pricing.prompt_usd_per_m) / 1e6 +
@@ -879,7 +913,8 @@ export async function streamChat(
   let stripResponseFormat = false;
   let paramFallbackUsed = false;
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  const maxAttempts = Math.max(1, params.maxRetries ?? 3);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const result = await streamChatOnce(params, {
         stripTemperature,

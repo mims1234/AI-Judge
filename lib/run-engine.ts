@@ -17,6 +17,7 @@ import {
   type Category,
   type JudgeOutput,
 } from "@/lib/schemas";
+import { getCallDeadlineMs, getMaxRetries } from "@/lib/server/appSettings";
 import {
   aggregateTask,
   estimateTaskCost,
@@ -668,6 +669,8 @@ class RunEngineImpl implements RunEngine {
           wrapper: string;
           task_body: string;
           judge_prompt: string;
+          validator_profile?: "official" | "custom_answer_v1";
+          must_mention?: string[];
         }
       >;
       pricing_snapshot?: Record<string, unknown>;
@@ -686,15 +689,17 @@ class RunEngineImpl implements RunEngine {
     const concurrency = Math.min(4, params.candidate_concurrency || 1);
     let budgetStopped = false;
 
+    const selectedTasks = (params.tasks ?? []).filter((t) =>
+      categories.includes(t.category),
+    );
+
     const runCandidate = async (candidateModelId: string) => {
-      for (const category of categories) {
+      for (const taskMeta of selectedTasks) {
+        const category = taskMeta.category;
         for (let trial = 0; trial < (params.trials_per_pair || 1); trial++) {
           if (ctrl.cancelRequested) return;
           await this.waitIfPaused(runId);
           if (ctrl.cancelRequested) return;
-
-          const taskMeta = params.tasks.find((t) => t.category === category);
-          if (!taskMeta) continue;
 
           const tr = prepare(
             `SELECT * FROM task_results
@@ -834,6 +839,8 @@ class RunEngineImpl implements RunEngine {
       wrapper: string;
       task_body: string;
       judge_prompt: string;
+      validator_profile?: "official" | "custom_answer_v1";
+      must_mention?: string[];
     },
     candidateModelId: string,
   ): Promise<void> {
@@ -933,6 +940,8 @@ class RunEngineImpl implements RunEngine {
       token_limit: number;
       category: Category;
       id: string;
+      validator_profile?: "official" | "custom_answer_v1";
+      must_mention?: string[];
     },
     candidateModelId: string,
   ): Promise<void> {
@@ -986,8 +995,21 @@ class RunEngineImpl implements RunEngine {
         messages,
         temperature: 0.7,
         maxTokens: taskMeta.token_limit,
+        responseFormat:
+          taskMeta.validator_profile === "custom_answer_v1"
+            ? {
+                name: "custom_answer",
+                schema: {
+                  type: "object",
+                  properties: { answer: { type: "string" } },
+                  required: ["answer"],
+                  additionalProperties: false,
+                },
+              }
+            : undefined,
         signal: ctrl.abortController.signal,
-        deadlineMs: 600_000,
+        deadlineMs: getCallDeadlineMs(),
+        maxRetries: getMaxRetries(),
         apiKey: this.resolveRunKey(runId),
         onDelta: (d) => {
           pendingDelta += d;
@@ -1232,6 +1254,8 @@ class RunEngineImpl implements RunEngine {
       task_body: string;
       judge_prompt: string;
       id: string;
+      validator_profile?: "official" | "custom_answer_v1";
+      must_mention?: string[];
     },
     candidateModelId: string,
   ): Promise<void> {
@@ -1349,6 +1373,11 @@ class RunEngineImpl implements RunEngine {
           validatorBlock,
           `CANDIDATE ANSWER:\n${row.raw_output}`,
         ];
+        if (taskMeta.must_mention && taskMeta.must_mention.length > 0) {
+          userParts.push(
+            `MUST MENTION / EXPECTED NOTES (judge-only; the candidate did not see this):\n${taskMeta.must_mention.map((m) => `- ${m}`).join("\n")}`,
+          );
+        }
         if (repairErrors) {
           userParts.push(
             `Your previous reply was not valid JSON matching the schema. Errors: ${repairErrors}. Reply with ONLY the JSON object.`,
@@ -1402,7 +1431,8 @@ class RunEngineImpl implements RunEngine {
             },
             signal: ctrl.abortController.signal,
             allowRetryAfterPartial: true,
-            deadlineMs: 240_000,
+            deadlineMs: getCallDeadlineMs(),
+            maxRetries: getMaxRetries(),
             apiKey: this.resolveRunKey(runId),
             onDelta: (d) => {
               pending += d;

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { pageSeo } from "@/lib/seo";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
 import { RecentSessions } from "@/components/playground/RecentSessions";
@@ -15,9 +16,12 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageSeo({
   title: "Chat leaderboard",
-};
+  description:
+    "Rankings from playground chat sessions — per-category scores, spend, and recent judged conversations.",
+  path: "/playground/leaderboard",
+});
 
 type SearchParams = Promise<{ category?: string; model?: string }>;
 

@@ -5,6 +5,8 @@ import { resetChatEngineForTests } from "@/lib/chat-engine";
 import { closeDb, getDb, migrate } from "@/lib/db";
 import { resetEnvCache } from "@/lib/env";
 import { resetRunEngineForTests } from "@/lib/run-engine";
+import { setTestSession } from "@/lib/server/session";
+import { resetTrafficLimiterForTests } from "@/lib/server/traffic";
 
 export type TestDb = {
   path: string;
@@ -24,6 +26,7 @@ export function createTestDb(prefix = "ai-judge-test-"): TestDb {
   closeDb();
   resetRunEngineForTests();
   resetChatEngineForTests();
+  setTestSession(null);
   process.env.DATABASE_PATH = dbPath;
   process.env.OPENROUTER_API_KEY ??= "test-key";
   resetEnvCache();
@@ -43,6 +46,8 @@ export function createTestDb(prefix = "ai-judge-test-"): TestDb {
       }
       resetRunEngineForTests();
       resetChatEngineForTests();
+      setTestSession(null);
+      resetTrafficLimiterForTests();
       resetEnvCache();
       try {
         fs.rmSync(dir, { recursive: true, force: true });

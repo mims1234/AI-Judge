@@ -22,6 +22,10 @@ const EnvSchema = z.object({
     .enum(["", "dev", "prod"])
     .optional()
     .default(""),
+  AUTH_SECRET: z.string().optional().default(""),
+  AUTH_DISCORD_ID: z.string().optional().default(""),
+  AUTH_DISCORD_SECRET: z.string().optional().default(""),
+  AUTH_URL: z.string().optional().default(""),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -49,6 +53,10 @@ export function getEnv(): Env {
     OPENROUTER_BASE_URL: present(process.env.OPENROUTER_BASE_URL),
     DATABASE_PATH: present(process.env.DATABASE_PATH),
     AI_JUDGE_MODE: rawMode === "development" ? "dev" : rawMode === "production" ? "prod" : rawMode,
+    AUTH_SECRET: process.env.AUTH_SECRET ?? "",
+    AUTH_DISCORD_ID: process.env.AUTH_DISCORD_ID ?? "",
+    AUTH_DISCORD_SECRET: process.env.AUTH_DISCORD_SECRET ?? "",
+    AUTH_URL: process.env.AUTH_URL ?? "",
   });
 
   if (!result.success) {
@@ -77,6 +85,15 @@ export function getAiJudgeMode(): AiJudgeMode {
 /** True when OPENROUTER_API_KEY may be used as a server-side fallback. */
 export function isEnvApiKeyFallbackAllowed(): boolean {
   return getAiJudgeMode() === "dev";
+}
+
+/**
+ * True only when AI_JUDGE_MODE=dev is set in env.
+ * Unlike getAiJudgeMode(), this does not infer "dev" from next dev.
+ * Dev credentials / the Dev sign-in button must stay behind this flag.
+ */
+export function isExplicitDevMode(): boolean {
+  return getEnv().AI_JUDGE_MODE === "dev";
 }
 
 /** Clear memoized env (tests only). */

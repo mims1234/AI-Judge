@@ -6,6 +6,7 @@ export type StatusDotTone =
   | "validating"
   | "judging"
   | "done"
+  | "warn"
   | "error";
 
 export type StatusDotProps = {
@@ -20,6 +21,7 @@ const DOTS: Record<StatusDotTone, string> = {
   validating: "bg-info-400",
   judging: "bg-warn-400 pulse-dot",
   done: "bg-pass-400",
+  warn: "bg-warn-400",
   error: "bg-fail-400",
 };
 

@@ -5,7 +5,11 @@ import { MiniBar } from "@/components/charts/MiniBar";
 import { Badge } from "@/components/ui/Badge";
 import { Tabs } from "@/components/ui/Tabs";
 import { formatTokens, formatUsd, formatUsdRange } from "@/lib/format";
-import { CATEGORY_ORDER, type Category, type RunSnapshot } from "@/lib/schemas";
+import {
+  presentCategories,
+  type Category,
+  type RunSnapshot,
+} from "@/lib/schemas";
 
 export type CostBreakdownProps = {
   snapshot: RunSnapshot;
@@ -95,7 +99,9 @@ export function CostBreakdown({ snapshot }: CostBreakdownProps) {
       <Tabs
         tabs={[
           { key: "all", label: "All" },
-          ...CATEGORY_ORDER.map((c) => ({ key: c, label: capitalize(c) })),
+          ...presentCategories(snapshot.task_results.map((t) => t.category)).map(
+            (c) => ({ key: c, label: capitalize(c) }),
+          ),
         ]}
         activeKey={tab}
         onChange={setTab}

@@ -16,6 +16,7 @@ export type ArenaCellProps = {
   cell: CellState | undefined;
   candidateModelId: string;
   category: Category;
+  taskId?: string;
   runTerminal: boolean;
   focused: boolean;
   href: string;
@@ -50,6 +51,7 @@ export function ArenaCell({
   cell,
   candidateModelId,
   category,
+  taskId,
   runTerminal,
   focused,
   href,
@@ -84,6 +86,10 @@ export function ArenaCell({
       if (navTimerRef.current != null) clearTimeout(navTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (focused) ref.current?.focus();
+  }, [focused]);
 
   // Exit micro-animation on plain clicks; modifier clicks keep native link behavior.
   const onClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -125,7 +131,7 @@ export function ArenaCell({
       href={href}
       role="gridcell"
       tabIndex={tabIndex}
-      data-testid={`cell-${candidateModelId}-${category}`}
+      data-testid={`cell-${candidateModelId}-${taskId ?? category}`}
       aria-label={aria}
       onFocus={onFocus}
       onClick={onClick}

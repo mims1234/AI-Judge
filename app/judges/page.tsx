@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
+import { pageSeo } from "@/lib/seo";
 import { CalibrationTable } from "@/components/judges/CalibrationTable";
 import { JudgeTable } from "@/components/judges/JudgeTable";
 import { buttonClasses } from "@/components/ui/Button";
@@ -20,8 +22,16 @@ import {
   type JudgeDetail,
 } from "@/lib/server/analytics";
 import { getDefaultBundle, listBundles } from "@/lib/server/bundles";
+import { getSessionUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = pageSeo({
+  title: "Judges",
+  description:
+    "Judge calibration: harshness, variance, parse failures, and evidence quality across the seeded three-judge panels.",
+  path: "/judges",
+});
 
 type SearchParams = Promise<{
   bundle?: string;
@@ -73,6 +83,7 @@ export default async function JudgesPage({
   searchParams: SearchParams;
 }) {
   noStore();
+  const user = await getSessionUser();
   const sp = await searchParams;
   const isDemo = sp.demo === "1";
 
@@ -129,9 +140,15 @@ export default async function JudgesPage({
           body="Once judges score a complete task, harshness, variance, and parse reliability show up here."
           action={
             <div className="flex flex-wrap gap-2">
-              <Link href="/run" className={buttonClasses({ variant: "primary" })}>
-                Start a benchmark
-              </Link>
+              {user ? (
+                <Link href="/run" className={buttonClasses({ variant: "primary" })}>
+                  Start a benchmark
+                </Link>
+              ) : (
+                <Link href="/runs" className={buttonClasses({ variant: "secondary" })}>
+                  View runs
+                </Link>
+              )}
               {!isDemo && (
                 <Link
                   href={`/judges?bundle=${encodeURIComponent(bundleSlug)}&demo=1`}

@@ -2,6 +2,20 @@
 
 import { cn } from "@/lib/cn";
 import { formatScore } from "@/lib/format";
+import type { Category } from "@/lib/schemas";
+
+const RADAR_LABEL: Record<Category, string> = {
+  roleplay: "Role",
+  coding: "Code",
+  math: "Math",
+  research: "Rsrch",
+  marketing: "Mktg",
+  poster: "Poster",
+  story: "Story",
+  judging: "Judge",
+  general: "Gen",
+  other: "Other",
+};
 
 export type RadarSeries = {
   label: string;
@@ -116,7 +130,7 @@ export function CategoryRadar({
                 fontSize={7}
                 fontFamily="var(--font-sans, Inter, sans-serif)"
               >
-                {capitalize(cat).slice(0, 6)}
+                {RADAR_LABEL[cat as Category] ?? capitalize(cat)}
               </text>
             </g>
           );

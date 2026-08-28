@@ -4,12 +4,15 @@ import {
   needsKeyError,
 } from "@/lib/api-helpers";
 import { getModelCatalog, hasApiKey, OpenRouterError } from "@/lib/openrouter";
+import { mapThrownApiError } from "@/lib/server/httpErrors";
+import { requireSession } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
+    await requireSession(request);
     const url = new URL(request.url);
     const forceRefresh = url.searchParams.get("refresh") === "1";
     const userKey = getKeyFromRequest(request);
@@ -17,7 +20,7 @@ export async function GET(request: Request) {
     // Force refresh always needs a resolvable key.
     if (forceRefresh && !hasApiKey(userKey)) {
       return needsKeyError(
-        "Add your OpenRouter API key in Settings to refresh the model catalog.",
+        "Add your OpenRouter API key to refresh the model catalog.",
       );
     }
 
@@ -31,7 +34,7 @@ export async function GET(request: Request) {
     if (err instanceof OpenRouterError) {
       if (err.kind === "missing_key") {
         return needsKeyError(
-          "Add your OpenRouter API key in Settings to load the model catalog.",
+          "Add your OpenRouter API key to load the model catalog.",
         );
       }
       return apiError(
@@ -40,7 +43,6 @@ export async function GET(request: Request) {
         err.message || "OpenRouter catalog unavailable",
       );
     }
-    console.error("[api/models]", err);
-    return apiError("INTERNAL_ERROR", 500, "Unexpected error");
+    return mapThrownApiError(err);
   }
 }

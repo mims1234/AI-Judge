@@ -5,6 +5,7 @@ import { Workbench } from "@/components/arena/Workbench";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { buildCellHref, parseCellParam } from "@/lib/cellRef";
 import { getRunSnapshot } from "@/lib/server/runSnapshot";
+import { getSessionUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,12 @@ export async function generateMetadata({
   params: Params;
 }): Promise<Metadata> {
   const { id } = await params;
-  return { title: `Run ${id.slice(0, 8)}` };
+  const short = id.slice(0, 8);
+  return {
+    title: `Run ${short}`,
+    description: `Live workbench and report for benchmark run ${short}. Blind three-judge scores, validators, and spend.`,
+    robots: { index: false, follow: false },
+  };
 }
 
 function WorkbenchFallback() {
@@ -50,7 +56,7 @@ export default async function RunWorkbenchPage({
     redirect(buildCellHref(id, legacy.candidate, legacy.category, legacy.trial));
   }
 
-  const snapshot = getRunSnapshot(id);
+  const snapshot = getRunSnapshot(id, await getSessionUser());
 
   if (!snapshot) {
     notFound();

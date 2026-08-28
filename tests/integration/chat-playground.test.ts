@@ -345,7 +345,7 @@ describe("chat playground engine (plans/16 §B2)", () => {
     mock.setRoutes([
       {
         includes: "independent conversation judge",
-        behavior: { kind: "http_error", status: 500, body: '{"error":{"message":"down"}}' },
+        behavior: { kind: "status", status: 500, body: '{"error":{"message":"down"}}' },
       },
     ]);
 

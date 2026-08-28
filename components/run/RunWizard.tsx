@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { PickerModel } from "@/components/models/ModelPicker";
 import { StepBundle, type BundleOption } from "@/components/run/StepBundle";
@@ -14,6 +15,7 @@ import {
   WIZARD_STEPS,
 } from "@/components/run/WizardStepper";
 import { Button } from "@/components/ui/Button";
+import { PublicRecordNotice } from "@/components/legal/PublicRecordNotice";
 import { DemoBanner } from "@/components/ui/DemoBanner";
 import { apiFetch } from "@/lib/client/apiKey";
 import {
@@ -26,7 +28,6 @@ import {
 } from "@/lib/client/runDraft";
 import { DEFAULT_BUNDLE_SLUG } from "@/lib/bundles/defaults";
 import type { AppSettings } from "@/lib/settings";
-import { KeyGate } from "@/components/settings/KeyGate";
 
 export type RunWizardProps = {
   bundles: BundleOption[];
@@ -35,6 +36,7 @@ export type RunWizardProps = {
   settings: AppSettings;
   isDemo: boolean;
   serverConfigured: boolean;
+  initialBundleSlug?: string | null;
 };
 
 function defaultBundleId(bundles: BundleOption[]): string | null {
@@ -59,6 +61,16 @@ function validateStep(step: WizardStep, draft: RunDraft): boolean {
 }
 
 /** Client wizard shell — steps, draft persistence, launch (plans/09 §1). */
+function categoriesForBundle(
+  bundles: BundleOption[],
+  bundleId: string | null,
+): RunDraft["categories"] {
+  const b = bundles.find((x) => x.id === bundleId);
+  return b?.availableCategories?.length
+    ? [...b.availableCategories]
+    : [...defaultRunDraft().categories];
+}
+
 export function RunWizard({
   bundles,
   maxTokenByBundle,
@@ -66,9 +78,12 @@ export function RunWizard({
   settings,
   isDemo,
   serverConfigured,
+  initialBundleSlug = null,
 }: RunWizardProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
+  const signedIn = Boolean(session?.user?.id);
   const step = parseStep(searchParams.get("step"));
 
   const [draft, setDraft] = useState<RunDraft>(() =>
@@ -94,13 +109,25 @@ export function RunWizard({
 
     setDraft((prev) => {
       const base = saved ?? prev;
+      const fromSlug =
+        initialBundleSlug || searchParams.get("bundle");
+      const queried = fromSlug
+        ? bundles.find((b) => b.slug === fromSlug || b.id === fromSlug)
+        : undefined;
       const bundleId =
-        base.bundleId && bundles.some((b) => b.id === base.bundleId)
+        queried?.id ??
+        (base.bundleId && bundles.some((b) => b.id === base.bundleId)
           ? base.bundleId
-          : defaultBundleId(bundles);
+          : defaultBundleId(bundles));
+      const available = categoriesForBundle(bundles, bundleId);
+      const cats =
+        queried || !base.categories?.length
+          ? available
+          : available.filter((c) => base.categories.includes(c));
       return {
         ...base,
         bundleId,
+        categories: cats.length > 0 ? cats : available,
         trials: base.trials || settings.trials,
         candidateConcurrency: base.candidateConcurrency || settings.candidateConcurrency,
         budgetUsd: base.budgetUsd || settings.defaultBudgetUsd,
@@ -137,9 +164,11 @@ export function RunWizard({
     (s: WizardStep) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("step", String(s));
+      const current = bundles.find((b) => b.id === draft.bundleId);
+      if (current) params.set("bundle", current.slug);
       router.replace(`/run?${params.toString()}`, { scroll: false });
     },
-    [router, searchParams],
+    [router, searchParams, bundles, draft.bundleId],
   );
 
   const patch = useCallback((p: Partial<RunDraft>) => {
@@ -156,10 +185,13 @@ export function RunWizard({
     if (step === 3) {
       return `${draft.judgePoolIds.length} judges in pool`;
     }
-    const tasks =
-      draft.candidateIds.length * draft.categories.length * draft.trials;
+    const bundle = bundles.find((b) => b.id === draft.bundleId);
+    const selectedTaskCount = bundle?.taskCategories?.length
+      ? bundle.taskCategories.filter((c) => draft.categories.includes(c)).length
+      : draft.categories.length;
+    const tasks = draft.candidateIds.length * selectedTaskCount * draft.trials;
     return `${tasks} tasks · cap ${draft.budgetUsd.toFixed(2)}`;
-  }, [step, draft]);
+  }, [step, draft, bundles]);
 
   const canContinue = validateStep(step, draft);
 
@@ -176,6 +208,10 @@ export function RunWizard({
   };
 
   const launch = async (seed: number) => {
+    if (!signedIn) {
+      setLaunchError("Sign in to launch a run.");
+      return;
+    }
     if (!draft.bundleId || launching) return;
     setLaunching(true);
     setLaunchError(null);
@@ -203,6 +239,11 @@ export function RunWizard({
           throw new Error(
             body.error.message ??
               "Add your OpenRouter API key in Settings before launching a run.",
+          );
+        }
+        if (body?.error?.code === "NEEDS_LOGIN") {
+          throw new Error(
+            body.error.message ?? "Sign in to launch a run.",
           );
         }
         throw new Error(body?.error?.message ?? `Launch failed (HTTP ${res.status})`);
@@ -237,17 +278,13 @@ export function RunWizard({
         </Link>
       </div>
 
+      <PublicRecordNotice kind="run" className="mt-4" />
+
       {isDemo && (
         <DemoBanner
           className="mt-4"
           note="Demo catalog — launch still hits the real API (needs a key)."
         />
-      )}
-
-      {!serverConfigured && (
-        <div className="mt-4">
-          <KeyGate serverConfigured={serverConfigured} variant="banner" />
-        </div>
       )}
 
       <div className="mt-6">
@@ -260,7 +297,12 @@ export function RunWizard({
             bundles={bundles}
             bundleId={draft.bundleId}
             categories={draft.categories}
-            onBundle={(id) => patch({ bundleId: id })}
+            onBundle={(id) =>
+              patch({
+                bundleId: id,
+                categories: categoriesForBundle(bundles, id),
+              })
+            }
             onCategories={(categories) => patch({ categories })}
           />
         )}
@@ -290,6 +332,8 @@ export function RunWizard({
             onGotoStep={setStep}
             onLaunch={(seed) => void launch(seed)}
             launching={launching}
+            signedIn={signedIn}
+            serverConfigured={serverConfigured}
           />
         )}
 

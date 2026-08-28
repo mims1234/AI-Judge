@@ -3,6 +3,8 @@
  * Keep SQLite access in `lib/server/analytics.ts` only.
  */
 
+import type { Category } from "@/lib/schemas";
+
 export type JudgeRollup = {
   judge_model_id: string;
   harshness_offset: number;
@@ -47,6 +49,12 @@ export type ModelRunStats = {
   q1: number | null;
   q3: number | null;
   scores: number[];
+};
+
+export type CompareTaskOption = {
+  id: string;
+  category: Category;
+  title: string;
 };
 
 export type SameTaskAnswer = {

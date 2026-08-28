@@ -11,7 +11,7 @@ import type {
  * Snapshot rehydrates; SSE events apply idempotently on top.
  */
 
-export type CellKey = `${string}:${Category}`;
+export type CellKey = `${string}:${string}`;
 export type StreamKey = string; // taskResultId or `${taskResultId}:${judgeModelId}`
 
 export type ConnectionState = "live" | "reconnecting" | "disconnected" | "closed";
@@ -80,6 +80,7 @@ export type TrialState = {
 export type CellState = {
   candidateModelId: string;
   category: Category;
+  taskId: string;
   trials: Map<number, TrialState>;
   medianAcrossTrials?: number;
 };
@@ -96,6 +97,7 @@ export type RunMeta = {
   seed: number;
   parameters: Record<string, unknown>;
   bundleRunScore: number | null;
+  canControl: boolean;
   notice?: { code: string; message: string } | null;
 };
 
@@ -112,8 +114,8 @@ export type RunStoreState = {
   showJudgeStreams: boolean;
 };
 
-export function cellKey(candidateModelId: string, category: Category): CellKey {
-  return `${candidateModelId}:${category}`;
+export function cellKey(candidateModelId: string, taskId: string): CellKey {
+  return `${candidateModelId}:${taskId}`;
 }
 
 export function streamKeyCandidate(taskResultId: string): StreamKey {
@@ -146,12 +148,13 @@ export function hydrateFromSnapshot(snapshot: RunSnapshot): RunStoreState {
   let error = 0;
 
   for (const tr of snapshot.task_results) {
-    const key = cellKey(tr.candidate_model_id, tr.category);
+    const key = cellKey(tr.candidate_model_id, tr.task_id);
     let cell = cells.get(key);
     if (!cell) {
       cell = {
         candidateModelId: tr.candidate_model_id,
         category: tr.category,
+        taskId: tr.task_id,
         trials: new Map(),
       };
       cells.set(key, cell);
@@ -276,6 +279,7 @@ export function hydrateFromSnapshot(snapshot: RunSnapshot): RunStoreState {
       seed: snapshot.run.seed,
       parameters: params,
       bundleRunScore: snapshot.bundle_run_score,
+      canControl: snapshot.run.can_control === true,
       notice: null,
     },
     candidates: snapshot.candidates,
@@ -303,12 +307,13 @@ function ensureTrial(
     trialIndex: number;
   },
 ): TrialState {
-  const key = cellKey(data.candidateModelId, data.category);
+  const key = cellKey(data.candidateModelId, data.taskId);
   let cell = state.cells.get(key);
   if (!cell) {
     cell = {
       candidateModelId: data.candidateModelId,
       category: data.category,
+      taskId: data.taskId,
       trials: new Map(),
     };
     state.cells.set(key, cell);

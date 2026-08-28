@@ -130,4 +130,33 @@ describe("cost estimation (plans/11 §1.5)", () => {
     expect(two.cost_usd_max).toBeGreaterThanOrEqual(two.cost_usd_expected);
     expect(two.cost_usd_min).toBeLessThanOrEqual(two.cost_usd_expected);
   });
+
+  it("estimateRunCost counts two tasks of the same type separately", () => {
+    seedPricing();
+    const task = {
+      category: "coding" as const,
+      wrapper: "w",
+      task_body: "body",
+      judge_prompt: "judge",
+      token_limit: 800,
+    };
+    const one = estimateRunCost({
+      candidate_model_ids: ["mock/cand-a"],
+      judge_pool_model_ids: ["mock/judge-1", "mock/judge-2", "mock/judge-3"],
+      categories: ["coding"],
+      tasks: [task],
+      trials_per_pair: 1,
+      candidate_concurrency: 1,
+    });
+    const two = estimateRunCost({
+      candidate_model_ids: ["mock/cand-a"],
+      judge_pool_model_ids: ["mock/judge-1", "mock/judge-2", "mock/judge-3"],
+      categories: ["coding"],
+      tasks: [task, { ...task, task_body: "other" }],
+      trials_per_pair: 1,
+      candidate_concurrency: 1,
+    });
+    expect(two.candidate_requests).toBe(one.candidate_requests * 2);
+    expect(two.cost_usd_expected).toBeGreaterThan(one.cost_usd_expected);
+  });
 });

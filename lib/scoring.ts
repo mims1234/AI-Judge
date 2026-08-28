@@ -4,6 +4,7 @@ import path from "node:path";
 import { withJudgeEnglishOnly } from "@/lib/bundles/judge-language";
 import { getDb, prepare } from "@/lib/db";
 import { getCachedModel, streamChat } from "@/lib/openrouter";
+import { getCallDeadlineMs, getMaxRetries } from "@/lib/server/appSettings";
 import {
   CATEGORY_ORDER,
   JudgeOutputSchema,
@@ -347,6 +348,12 @@ export function finalizeRun(runId: string): {
     categories?: Category[];
   };
   const categories = params.categories ?? CATEGORY_ORDER;
+  const selectedCats = new Set(categories);
+  const runTasks = (
+    prepare(
+      `SELECT id, category FROM tasks WHERE bundle_id = ? ORDER BY category ASC, rowid ASC`,
+    ).all(run.bundle_id) as Array<{ id: string; category: Category }>
+  ).filter((t) => selectedCats.has(t.category));
 
   const candidates = prepare(
     `SELECT model_id FROM run_candidates WHERE run_id = ?`,
@@ -376,16 +383,19 @@ export function finalizeRun(runId: string): {
     let scored_trials = 0;
     let total_trials = 0;
 
-    for (const cat of categories) {
+    const taskScores: number[] = [];
+    const byCategory = new Map<string, number[]>();
+
+    for (const task of runTasks) {
       const trialValues: number[] = [];
 
       const scored = prepare(
         `SELECT ts.median_overall, ts.judge_overalls_json
          FROM task_scores ts
          JOIN task_results tr ON tr.id = ts.task_result_id
-         WHERE ts.run_id = ? AND ts.candidate_model_id = ? AND ts.category = ?
+         WHERE ts.run_id = ? AND ts.candidate_model_id = ? AND tr.task_id = ?
            AND tr.status = 'scored'`,
-      ).all(runId, model_id, cat) as Array<{
+      ).all(runId, model_id, task.id) as Array<{
         median_overall: number;
         judge_overalls_json: string;
       }>;
@@ -407,47 +417,69 @@ export function finalizeRun(runId: string): {
       const errored = prepare(
         `SELECT tr.error
          FROM task_results tr
-         JOIN tasks t ON t.id = tr.task_id
-         WHERE tr.run_id = ? AND tr.candidate_model_id = ? AND t.category = ?
+         WHERE tr.run_id = ? AND tr.candidate_model_id = ? AND tr.task_id = ?
            AND tr.status = 'error'`,
-      ).all(runId, model_id, cat) as Array<{ error: string | null }>;
+      ).all(runId, model_id, task.id) as Array<{ error: string | null }>;
 
       for (const row of errored) {
         total_trials += 1;
         const kind = parseTaskErrorKind(row.error);
         if (kind === "judging_failure") {
-          // Candidate answered; judges failed — exclude (coverage gap only).
           excluded_count += 1;
         } else {
-          // infra_failure or unknown → candidate fault → score 0.
           trialValues.push(0);
           penalized_count += 1;
         }
       }
 
       if (trialValues.length > 0) {
-        categoryScores[cat] = median(trialValues);
+        const med = median(trialValues);
+        taskScores.push(med);
+        const list = byCategory.get(task.category) ?? [];
+        list.push(med);
+        byCategory.set(task.category, list);
       }
     }
 
-    const catValues = categories
-      .map((c) => categoryScores[c])
-      .filter((n): n is number => typeof n === "number");
-    const overall = catValues.length > 0 ? mean(catValues) : null;
+    for (const [cat, vals] of byCategory) {
+      categoryScores[cat] = mean(vals);
+    }
+
+    const overall = taskScores.length > 0 ? mean(taskScores) : null;
     // Coverage = share of trials that produced a real judge score (not penalty/exclusion).
     const coverage = total_trials > 0 ? scored_trials / total_trials : 1;
     if (coverage < 1 || penalized_count > 0 || excluded_count > 0) {
       anyIncompleteCoverage = true;
     }
 
-    // complete=1 only for clean full-coverage completed runs (badge semantics).
+    const paramsFull = JSON.parse(run.parameters_json) as {
+      categories?: Category[];
+      bundle_categories?: Category[];
+    };
+    const selectedSet = new Set(paramsFull.categories ?? categories);
+    const requiredSet = new Set(
+      paramsFull.bundle_categories ?? CATEGORY_ORDER,
+    );
+    const setsEqual =
+      selectedSet.size === requiredSet.size &&
+      [...requiredSet].every((c) => selectedSet.has(c));
+
+    const openRows = prepare(
+      `SELECT COUNT(*) AS n FROM task_results
+       WHERE run_id = ? AND candidate_model_id = ?
+         AND status NOT IN ('scored', 'error')`,
+    ).get(runId, model_id) as { n: number };
+    if (openRows.n > 0) anyIncompleteCoverage = true;
+
+    // complete=1 is a badge, not a leaderboard inclusion filter.
     const candidateComplete =
       run.status === "completed" &&
-      categories.length === 8 &&
-      catValues.length === categories.length &&
+      setsEqual &&
+      taskScores.length === runTasks.length &&
       penalized_count === 0 &&
       excluded_count === 0 &&
-      coverage >= 1;
+      coverage >= 1 &&
+      openRows.n === 0;
 
     const payload: CategoryScoresPayload = {
       scores: categoryScores,
@@ -944,6 +976,7 @@ export function evaluatePreflight(input: {
     judge_prompt: string;
     output_schema: string;
     token_limit: number;
+    must_mention_json?: string;
   }>;
 } {
   const errors: PreflightIssue[] = [];
@@ -952,9 +985,15 @@ export function evaluatePreflight(input: {
     input.seed ?? Math.floor(Math.random() * 0x7fffffff);
 
   const bundle = prepare(
-    `SELECT id, slug, content_hash, status FROM bundles WHERE id = ? OR slug = ?`,
+    `SELECT id, slug, content_hash, status, origin FROM bundles WHERE id = ? OR slug = ?`,
   ).get(input.bundle_id, input.bundle_id) as
-    | { id: string; slug: string; content_hash: string; status: string }
+    | {
+        id: string;
+        slug: string;
+        content_hash: string;
+        status: string;
+        origin: string;
+      }
     | undefined;
 
   if (!bundle) {
@@ -971,7 +1010,7 @@ export function evaluatePreflight(input: {
 
   const tasks = bundle
     ? (prepare(
-        `SELECT id, category, wrapper, task_body, judge_prompt, output_schema, token_limit
+        `SELECT id, category, wrapper, task_body, judge_prompt, output_schema, token_limit, must_mention_json
          FROM tasks WHERE bundle_id = ?`,
       ).all(bundle.id) as Array<{
         id: string;
@@ -981,12 +1020,62 @@ export function evaluatePreflight(input: {
         judge_prompt: string;
         output_schema: string;
         token_limit: number;
+        must_mention_json: string;
       }>)
     : [];
+
+  const uniqueCats = new Set(input.categories);
+  if (uniqueCats.size !== input.categories.length) {
+    errors.push({
+      code: "CATEGORIES_DUPLICATE",
+      message: "Categories must be unique",
+    });
+  }
+
+  const bundleCats = new Set(tasks.map((t) => t.category));
+  const missingOnBundle = input.categories.filter((c) => !bundleCats.has(c));
+  if (bundle && missingOnBundle.length > 0) {
+    errors.push({
+      code: "CATEGORY_NOT_IN_BUNDLE",
+      message: `Bundle does not include: ${missingOnBundle.join(", ")}`,
+      details: { categories: missingOnBundle },
+    });
+  }
 
   const includedTasks = tasks.filter((t) =>
     input.categories.includes(t.category),
   );
+
+  if (bundle?.origin === "custom") {
+    if (tasks.length < 1 || tasks.length > 5) {
+      errors.push({
+        code: "CUSTOM_PACK_SIZE",
+        message: "Custom packs must have 1–5 tasks",
+      });
+    }
+  }
+
+  const leakBlob = includedTasks
+    .map((t) => `${t.wrapper}\n${t.task_body}\n${t.must_mention_json ?? ""}`)
+    .join("\n");
+  for (const id of input.candidate_model_ids) {
+    if (leakBlob.includes(id)) {
+      errors.push({
+        code: "BLIND_CONFLICT",
+        message: `Pack text contains candidate id ${id}`,
+        details: { model_id: id },
+      });
+    } else {
+      const suffix = id.includes("/") ? id.split("/").slice(1).join("/") : "";
+      if (suffix && leakBlob.includes(suffix)) {
+        errors.push({
+          code: "BLIND_CONFLICT",
+          message: `Pack text contains candidate suffix ${suffix}`,
+          details: { model_id: id },
+        });
+      }
+    }
+  }
   const maxTask = includedTasks.reduce(
     (best, t) => {
       const promptEst = Math.ceil((t.wrapper.length + t.task_body.length) / 4);
@@ -1099,9 +1188,12 @@ export function estimateRunCost(config: RunCostConfig): {
   duration_est_seconds: number;
   unpriced_models: string[];
 } {
+  const scoredTasks = config.tasks.filter((t) =>
+    config.categories.includes(t.category),
+  );
   const candidate_requests =
     config.candidate_model_ids.length *
-    config.categories.length *
+    scoredTasks.length *
     config.trials_per_pair;
   const judge_requests = 3 * candidate_requests;
   const request_count = candidate_requests + judge_requests;
@@ -1120,14 +1212,8 @@ export function estimateRunCost(config: RunCostConfig): {
   let prompt_tokens_est = 0;
   let completion_tokens_est = 0;
 
-  const tasksByCat = new Map(
-    config.tasks.map((t) => [t.category, t] as const),
-  );
-
   for (const cand of config.candidate_model_ids) {
-    for (const cat of config.categories) {
-      const task = tasksByCat.get(cat);
-      if (!task) continue;
+    for (const task of scoredTasks) {
       for (let trial = 0; trial < config.trials_per_pair; trial++) {
         const judges = config.judge_pool_model_ids.slice(0, 3);
         const { expected, max } = estimateTaskCost(task, cand, judges);
@@ -1261,7 +1347,8 @@ export async function runCalibration(
         signal: signal ?? new AbortController().signal,
         onDelta: () => undefined,
         allowRetryAfterPartial: true,
-        deadlineMs: 240_000,
+        deadlineMs: getCallDeadlineMs(),
+        maxRetries: getMaxRetries(),
       });
       raw = result.text;
       const cleaned = raw

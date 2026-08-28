@@ -109,7 +109,7 @@ export function RunHeader() {
             Show judge streams
           </label>
 
-          {!terminal && run.status !== "paused" && (
+          {run.canControl && !terminal && run.status !== "paused" && (
             <Button
               variant="secondary"
               size="sm"
@@ -119,7 +119,7 @@ export function RunHeader() {
               Pause
             </Button>
           )}
-          {!terminal && run.status === "paused" && (
+          {run.canControl && !terminal && run.status === "paused" && (
             <Button
               variant="secondary"
               size="sm"
@@ -129,7 +129,7 @@ export function RunHeader() {
               Resume
             </Button>
           )}
-          {!terminal && (
+          {run.canControl && !terminal && (
             <Button
               variant="danger"
               size="sm"

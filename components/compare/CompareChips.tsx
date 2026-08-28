@@ -68,15 +68,28 @@ export function CompareChips({
 
     setLoading(true);
     apiFetch("/api/models")
-      .then((r) => r.json())
-      .then((data: { models?: PickerModel[] }) => {
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<{ models?: PickerModel[] }>;
+      })
+      .then((data) => {
         if (cancelled) return;
         const eligible = new Set(eligibleIds);
         const list = (data.models ?? []).filter((m) => eligible.has(m.id));
         setModels(list.length > 0 ? list : data.models ?? []);
       })
       .catch(() => {
-        if (!cancelled) setModels([]);
+        if (cancelled) return;
+        setModels(
+          eligibleIds.map((id) => ({
+            id,
+            name: modelShort(id),
+            context_length: 128_000,
+            pricing: null,
+            is_free: false,
+            supports_structured_outputs: true,
+          })),
+        );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -101,6 +114,23 @@ export function CompareChips({
   };
 
   const eligibleSet = useMemo(() => new Set(eligibleIds), [eligibleIds]);
+  const [modKey, setModKey] = useState("Ctrl");
+
+  useEffect(() => {
+    const mac = /Mac|iPhone|iPad/.test(navigator.platform);
+    setModKey(mac ? "⌘" : "Ctrl");
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        if (selectedIds.length < 4) setOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedIds.length]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -128,7 +158,9 @@ export function CompareChips({
           disabled={selectedIds.length >= 4}
         >
           + Add model
-          <kbd className="ml-1 hidden font-mono text-[10px] text-dim sm:inline">⌘K</kbd>
+          <kbd className="ml-1 hidden font-mono text-[10px] text-dim sm:inline">
+            {modKey}+K
+          </kbd>
         </Button>
       </div>
 

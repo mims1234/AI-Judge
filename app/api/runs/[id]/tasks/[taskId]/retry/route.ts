@@ -6,6 +6,8 @@ import {
 import { prepare } from "@/lib/db";
 import { hasApiKey } from "@/lib/openrouter";
 import { getRunEngine, InvalidStateError } from "@/lib/run-engine";
+import { mapThrownApiError } from "@/lib/server/httpErrors";
+import { requireRunControl } from "@/lib/server/runControl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +16,9 @@ type Params = { params: Promise<{ id: string; taskId: string }> };
 
 export async function POST(request: Request, ctx: Params) {
   try {
+    const { id, taskId } = await ctx.params;
+    await requireRunControl(request, id);
+
     const userKey = getKeyFromRequest(request);
     if (!hasApiKey(userKey)) {
       return needsKeyError(
@@ -21,7 +26,6 @@ export async function POST(request: Request, ctx: Params) {
       );
     }
 
-    const { id, taskId } = await ctx.params;
     const run = prepare(`SELECT id, status FROM runs WHERE id = ?`).get(id) as
       | { id: string; status: string }
       | undefined;
@@ -70,7 +74,6 @@ export async function POST(request: Request, ctx: Params) {
     if (err instanceof InvalidStateError) {
       return apiError("INVALID_STATE", 409, err.message);
     }
-    console.error("[api/runs/retry]", err);
-    return apiError("INTERNAL_ERROR", 500, "Unexpected error");
+    return mapThrownApiError(err);
   }
 }

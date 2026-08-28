@@ -62,8 +62,8 @@ function WorkbenchInner({
   );
 
   // Report matrix cells deep-link into the cell detail page (plans/15 §A1).
-  const openCell = (cand: string, cat: Category) => {
-    router.push(buildCellHref(runId, cand, cat));
+  const openCell = (cand: string, cat: Category, taskId?: string) => {
+    router.push(buildCellHref(runId, cand, cat, null, taskId));
   };
 
   const eligibilityBanner =

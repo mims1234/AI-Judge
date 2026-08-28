@@ -2,18 +2,21 @@ import "server-only";
 
 import type {
   CalibrationRow,
+  CompareTaskOption,
   JudgeDetail,
   JudgeRollup,
   ModelRunStats,
   SameTaskAnswer,
 } from "@/lib/analytics/types";
+import { labeledTaskTitles } from "@/lib/bundles/task-labels";
 import { prepare } from "@/lib/db";
 import type { Category } from "@/lib/schemas";
 import { median, queryJudgeRollups, queryLeaderboard, type LeaderboardRow } from "@/lib/scoring";
-import { getBundleBySlugOrId } from "@/lib/server/bundles";
+import { getBundleBySlugOrId, getBundleTasks } from "@/lib/server/bundles";
 
 export type {
   CalibrationRow,
+  CompareTaskOption,
   JudgeDetail,
   JudgeRollup,
   ModelRunStats,
@@ -205,11 +208,23 @@ export function getModelsWithCompleteRuns(bundleSlug: string): string[] {
   return rows.map((r) => r.m);
 }
 
-/** Each model's answer for one category, from its latest complete run (plans/10 §3.2). */
+/** Labeled pack tasks for the compare same-task picker. */
+export function getCompareTasks(bundleSlug: string): CompareTaskOption[] {
+  const bundle = getBundleBySlugOrId(bundleSlug);
+  if (!bundle) return [];
+  return labeledTaskTitles(
+    getBundleTasks(bundle.id).map((t) => ({
+      id: t.id,
+      category: t.category as Category,
+    })),
+  );
+}
+
+/** Each model's answer for one task, from its latest scored run (plans/10 §3.2). */
 export function getSameTaskAnswers(
   bundleSlug: string,
   modelIds: string[],
-  category: Category,
+  taskId: string,
 ): SameTaskAnswer[] {
   const bundle = getBundleBySlugOrId(bundleSlug);
   if (!bundle) return [];
@@ -242,11 +257,10 @@ export function getSameTaskAnswers(
       `SELECT tr.id AS id, tr.raw_output AS raw_output, tr.trial_index AS trial_index,
               ts.median_overall AS median, ts.disagreement AS spread
        FROM task_results tr
-       JOIN tasks t ON t.id = tr.task_id AND t.category = ?
        LEFT JOIN task_scores ts ON ts.task_result_id = tr.id
-       WHERE tr.run_id = ? AND tr.candidate_model_id = ?
+       WHERE tr.run_id = ? AND tr.candidate_model_id = ? AND tr.task_id = ?
        ORDER BY tr.trial_index ASC`,
-    ).all(category, latestRun.run_id, modelId) as Array<{
+    ).all(latestRun.run_id, modelId, taskId) as Array<{
       id: string;
       raw_output: string | null;
       trial_index: number;

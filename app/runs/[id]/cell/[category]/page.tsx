@@ -7,7 +7,7 @@ import { getRunSnapshot } from "@/lib/server/runSnapshot";
 export const dynamic = "force-dynamic";
 
 type Params = Promise<{ id: string; category: string }>;
-type SearchParams = Promise<{ candidate?: string; trial?: string }>;
+type SearchParams = Promise<{ candidate?: string; trial?: string; task?: string }>;
 
 export async function generateMetadata({
   params,
@@ -15,7 +15,10 @@ export async function generateMetadata({
   params: Params;
 }): Promise<Metadata> {
   const { id, category } = await params;
-  return { title: `Cell ${category} · Run ${id.slice(0, 8)}` };
+  return {
+    title: `Cell ${category} · Run ${id.slice(0, 8)}`,
+    robots: { index: false, follow: false },
+  };
 }
 
 export default async function CellDetailPage({
@@ -43,6 +46,7 @@ export default async function CellDetailPage({
       candidateModelId={candidate}
       category={category}
       trialFromUrl={parseTrialParam(sp.trial ?? null)}
+      taskIdFromUrl={sp.task ?? null}
     />
   );
 }

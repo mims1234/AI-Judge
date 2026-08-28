@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { pageSeo } from "@/lib/seo";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -10,12 +11,17 @@ import {
 } from "@/lib/format";
 import type { RunStatus } from "@/lib/schemas";
 import { listRuns } from "@/lib/server/runs";
+import { getSessionUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageSeo({
   title: "Runs",
-};
+  description:
+    "Your benchmark runs — live workbench, completed reports, spend, and exports.",
+  path: "/runs",
+  index: false,
+});
 
 function statusTone(
   status: RunStatus,
@@ -36,7 +42,8 @@ function statusTone(
   }
 }
 
-export default function RunsPage() {
+export default async function RunsPage() {
+  const user = await getSessionUser();
   const runs = listRuns(50);
 
   return (
@@ -50,19 +57,27 @@ export default function RunsPage() {
             Open any past or live run. Completed runs open in replay.
           </p>
         </div>
-        <Link href="/run" className={buttonClasses({ variant: "primary" })}>
-          New run
-        </Link>
+        {user ? (
+          <Link href="/run" className={buttonClasses({ variant: "primary" })}>
+            New run
+          </Link>
+        ) : null}
       </div>
 
       {runs.length === 0 ? (
         <EmptyState
           title="No runs yet"
-          body="Configure a benchmark and launch one — it will show up here."
+          body={
+            user
+              ? "Configure a benchmark and launch one — it will show up here."
+              : "Sign in and add an OpenRouter key to launch a run. Past runs stay viewable here."
+          }
           action={
-            <Link href="/run" className={buttonClasses({ variant: "primary" })}>
-              Configure a run
-            </Link>
+            user ? (
+              <Link href="/run" className={buttonClasses({ variant: "primary" })}>
+                Configure a run
+              </Link>
+            ) : undefined
           }
         />
       ) : (

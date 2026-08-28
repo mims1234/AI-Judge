@@ -1,4 +1,9 @@
-import type { Category } from "@/lib/schemas";
+import type { BundleRow } from "@/lib/bundles/types";
+import {
+  OFFICIAL_CATEGORY_ORDER,
+  type Category,
+  type OfficialCategory,
+} from "@/lib/schemas";
 import type { LeaderboardRow } from "@/lib/scoring";
 import type {
   CalibrationRow,
@@ -17,16 +22,33 @@ import type {
 export const DEMO_BUNDLE_SLUG = "mini-benchmark-v1";
 export const DEMO_BUNDLE_HASH = "a3f2c1d49b8e77aa01f2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718a3f2";
 
-const CATS: Category[] = [
-  "roleplay", "coding", "math", "research", "marketing", "poster", "story", "judging",
-];
+export function demoBundleRow(createdAt = Date.now()): BundleRow {
+  return {
+    id: "demo",
+    name: "Mini Benchmark",
+    version: "v1",
+    slug: DEMO_BUNDLE_SLUG,
+    content_hash: DEMO_BUNDLE_HASH,
+    status: "published",
+    changelog: "",
+    created_at: createdAt,
+    origin: "official",
+    brief: null,
+    reference_notes: null,
+    generator_model_id: null,
+    author_user_id: null,
+    quality_json: null,
+  };
+}
+
+const CATS: OfficialCategory[] = [...OFFICIAL_CATEGORY_ORDER];
 
 type DemoModel = {
   id: string;
   score: number;
   runs: number;
   provisional: boolean;
-  catMedians: Record<Category, number>;
+  catMedians: Record<OfficialCategory, number>;
   spreads: number[];
   success: number;
   cost: number;
@@ -84,7 +106,10 @@ export function demoLeaderboardRows(category?: Category): LeaderboardRow[] {
   const rows: LeaderboardRow[] = DEMO_MODELS.map((m) => ({
     rank: 0,
     model_id: m.id,
-    score: category ? m.catMedians[category] : m.score,
+    score:
+      category && Object.hasOwn(m.catMedians, category)
+        ? m.catMedians[category as OfficialCategory]
+        : m.score,
     provisional: m.provisional,
     complete_runs: m.runs,
     disagreement_mean: m.spreads.reduce((a, b) => a + b, 0) / m.spreads.length,
@@ -163,6 +188,14 @@ const CATEGORY_SNIPPETS: Record<Category, { good: string; flawed: string }> = {
     good: "{\"scores\":{\"correctness\":7,\"requirement_compliance\":9,\"quality\":8,\"honesty\":9},\"overall_score\":8.25,\"verdict\":\"pass\",…}",
     flawed: "The answer looks good to me. I would rate it highly. 8/10.",
   },
+  general: {
+    good: "A concrete, checkable answer that states assumptions and covers the request without padding.",
+    flawed: "A vague reply that restates the prompt and never commits to a usable result.",
+  },
+  other: {
+    good: "A focused response that treats the unusual request on its own terms and lists what was assumed.",
+    flawed: "A generic essay that ignores the actual request and invents extra requirements.",
+  },
 };
 
 export function demoSameTaskAnswers(modelIds: string[], category: Category): SameTaskAnswer[] {
@@ -176,7 +209,9 @@ export function demoSameTaskAnswers(modelIds: string[], category: Category): Sam
         feedback: { good: [], terrible: [], missing: [], improvements: [] },
       };
     }
-    const med = m.catMedians[category];
+    const med = Object.hasOwn(m.catMedians, category)
+      ? m.catMedians[category as OfficialCategory]
+      : 7;
     const strong = med >= 8;
     const spread = Math.round((0.4 + (10 - med) * 0.35) * 10) / 10;
     return {

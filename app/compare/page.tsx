@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
+import { pageSeo } from "@/lib/seo";
 import { CompareChips } from "@/components/compare/CompareChips";
 import { CompareOverview } from "@/components/compare/CompareOverview";
 import { ReliabilityEconomics } from "@/components/compare/ReliabilityEconomics";
@@ -10,29 +12,44 @@ import { DemoBanner } from "@/components/ui/DemoBanner";
 import { EmptyState } from "@/components/ui/EmptyState";
 import {
   DEMO_BUNDLE_SLUG,
+  demoBundleRow,
   demoLeaderboardRows,
   demoRunStats,
   demoSameTaskAnswers,
 } from "@/lib/mocks/demoAnalytics";
-import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
-import type { LeaderboardRow } from "@/lib/scoring";
+import { labeledTaskTitles } from "@/lib/bundles/task-labels";
 import {
+  OFFICIAL_CATEGORY_ORDER,
+  presentCategories,
+  type Category,
+} from "@/lib/schemas";
+import type { LeaderboardRow } from "@/lib/scoring";
+import type { CompareTaskOption, SameTaskAnswer } from "@/lib/analytics/types";
+import {
+  getCompareTasks,
   getLeaderboardData,
   getModelRunStats,
   getModelsWithCompleteRuns,
   getSameTaskAnswers,
   type ModelRunStats,
-  type SameTaskAnswer,
 } from "@/lib/server/analytics";
-import { getDefaultBundle, listBundles } from "@/lib/server/bundles";
+import { getDefaultBundle, listBundles, withBundleMeta } from "@/lib/server/bundles";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = pageSeo({
+  title: "Compare models",
+  description:
+    "Compare up to four models on the same bundle: score matrix, same-task answers, reliability, and score-per-dollar.",
+  path: "/compare",
+});
 
 type SearchParams = Promise<{
   bundle?: string;
   models?: string;
   demo?: string;
   category?: string;
+  task?: string;
 }>;
 
 function parseModels(raw: string | undefined): string[] {
@@ -53,10 +70,6 @@ export default async function ComparePage({
   const sp = await searchParams;
   const isDemo = sp.demo === "1";
   const modelIds = parseModels(sp.models);
-  const initialCategory: Category =
-    sp.category && (CATEGORY_ORDER as string[]).includes(sp.category)
-      ? (sp.category as Category)
-      : "coding";
 
   const bundles = listBundles().filter((b) => b.status === "published");
   const fallback = getDefaultBundle();
@@ -66,18 +79,27 @@ export default async function ComparePage({
   const controlBundles =
     bundles.length > 0
       ? bundles
-      : [
-          {
-            id: "demo",
-            name: "Mini Benchmark",
-            version: "v1",
-            slug: DEMO_BUNDLE_SLUG,
-            content_hash: "",
-            status: "published" as const,
-            changelog: "",
-            created_at: Date.now(),
-          },
-        ];
+      : [demoBundleRow()];
+  const selected = controlBundles.find((b) => b.slug === bundleSlug);
+  const categories = isDemo
+    ? [...OFFICIAL_CATEGORY_ORDER]
+    : presentCategories(
+        selected ? withBundleMeta(selected).availableCategories : [],
+      );
+  const compareTasks: CompareTaskOption[] = isDemo
+    ? labeledTaskTitles(
+        OFFICIAL_CATEGORY_ORDER.map((c) => ({ id: `demo-${c}`, category: c })),
+      )
+    : getCompareTasks(bundleSlug);
+
+  const initialTaskId = (() => {
+    if (sp.task && compareTasks.some((t) => t.id === sp.task)) return sp.task;
+    if (sp.category) {
+      const match = compareTasks.find((t) => t.category === (sp.category as Category));
+      if (match) return match.id;
+    }
+    return compareTasks[0]?.id;
+  })();
 
   let allRows: LeaderboardRow[] = [];
   let eligibleIds: string[] = [];
@@ -105,7 +127,7 @@ export default async function ComparePage({
       avg_latency_ms: 0,
       last_evaluated_at: null,
       spread_history: [],
-      category_medians: Object.fromEntries(CATEGORY_ORDER.map((c) => [c, 0])),
+      category_medians: Object.fromEntries(categories.map((c) => [c, 0])),
       category_detail: {},
       coverage: 0,
       penalized_tasks: 0,
@@ -118,12 +140,12 @@ export default async function ComparePage({
     stats[id] = isDemo ? demoRunStats(id) : getModelRunStats(bundleSlug, id);
   }
 
-  const answersByCategory: Partial<Record<Category, SameTaskAnswer[]>> = {};
+  const answersByTask: Record<string, SameTaskAnswer[]> = {};
   if (modelIds.length > 0) {
-    for (const cat of CATEGORY_ORDER) {
-      answersByCategory[cat] = isDemo
-        ? demoSameTaskAnswers(modelIds, cat)
-        : getSameTaskAnswers(bundleSlug, modelIds, cat);
+    for (const task of compareTasks) {
+      answersByTask[task.id] = isDemo
+        ? demoSameTaskAnswers(modelIds, task.category)
+        : getSameTaskAnswers(bundleSlug, modelIds, task.id);
     }
   }
 
@@ -152,17 +174,21 @@ export default async function ComparePage({
 
       {modelIds.length === 0 ? (
         <EmptyState
-          title="Pick up to 4 models with at least one complete run"
+          title="Pick up to 4 models with at least one scored run"
           body="Comparison needs completed bundle runs so every column shares the same prompts."
           action={
             <div className="flex flex-wrap gap-2">
               <Link
-                href={`/compare?bundle=${encodeURIComponent(bundleSlug)}&models=${encodeURIComponent(
-                  (isDemo ? demoLeaderboardRows() : allRows)
-                    .slice(0, 2)
-                    .map((r) => r.model_id)
-                    .join(","),
-                )}${isDemo ? "&demo=1" : allRows.length === 0 ? "&demo=1" : ""}`}
+                href={
+                  !isDemo && allRows.length < 2
+                    ? `/compare?bundle=${encodeURIComponent(bundleSlug)}&demo=1`
+                    : `/compare?bundle=${encodeURIComponent(bundleSlug)}&models=${encodeURIComponent(
+                        (isDemo ? demoLeaderboardRows() : allRows)
+                          .slice(0, 2)
+                          .map((r) => r.model_id)
+                          .join(","),
+                      )}${isDemo ? "&demo=1" : ""}`
+                }
                 className={buttonClasses({ variant: "primary" })}
               >
                 {allRows.length >= 2 || isDemo
@@ -178,8 +204,9 @@ export default async function ComparePage({
           <ScoreMatrix rows={selectedRows} />
           <SameTaskAnswers
             modelIds={modelIds}
-            initialCategory={initialCategory}
-            answersByCategory={answersByCategory}
+            tasks={compareTasks}
+            initialTaskId={initialTaskId}
+            answersByTask={answersByTask}
           />
           <ReliabilityEconomics rows={selectedRows} stats={stats} />
         </>

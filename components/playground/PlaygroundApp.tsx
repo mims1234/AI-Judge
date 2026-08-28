@@ -15,6 +15,7 @@ import { StatusDot } from "@/components/ui/StatusDot";
 import {
   apiFetch,
   isNeedsKeyResponse,
+  isNeedsLoginResponse,
 } from "@/lib/client/apiKey";
 import { useChatStream } from "@/lib/client/useChatStream";
 import { formatUsd } from "@/lib/format";
@@ -25,8 +26,11 @@ async function readError(res: Response): Promise<string> {
     const body = (await res.json()) as {
       error?: { message?: string; code?: string };
     };
+    if (isNeedsLoginResponse(res.status, body)) {
+      return "Sign in first, then add your OpenRouter key.";
+    }
     if (isNeedsKeyResponse(res.status, body)) {
-      return "Add your OpenRouter API key in Settings first.";
+      return "Add your OpenRouter API key first.";
     }
     return body.error?.message || `HTTP ${res.status}`;
   } catch {

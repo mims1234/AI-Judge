@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { buildCellHref } from "@/lib/cellRef";
+import { labeledTaskTitles } from "@/lib/bundles/task-labels";
+import { buildCellHref, isCategory } from "@/lib/cellRef";
 import { cn } from "@/lib/cn";
 import { formatScore } from "@/lib/format";
 import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
@@ -20,14 +21,68 @@ const CAT_SHORT: Record<Category, string> = {
   poster: "Poster",
   story: "Story",
   judging: "Judging",
+  general: "General",
+  other: "Other",
 };
+
+type ArenaColumn = { taskId: string; category: Category; label: string };
+
+function columnsFromRun(
+  parameters: Record<string, unknown>,
+  cells: Iterable<{ taskId: string; category: Category }>,
+): ArenaColumn[] {
+  const selected = Array.isArray(parameters.categories)
+    ? (parameters.categories as unknown[]).filter(
+        (c): c is Category => typeof c === "string" && isCategory(c),
+      )
+    : null;
+  const raw = parameters.tasks;
+  if (Array.isArray(raw) && raw.length > 0) {
+    const tasks: Array<{ id: string; category: Category }> = [];
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue;
+      const rec = item as { id?: unknown; category?: unknown };
+      if (typeof rec.id !== "string" || typeof rec.category !== "string") continue;
+      if (!isCategory(rec.category)) continue;
+      if (selected && !selected.includes(rec.category)) continue;
+      tasks.push({ id: rec.id, category: rec.category });
+    }
+    if (tasks.length > 0) {
+      return labeledTaskTitles(tasks).map((t) => ({
+        taskId: t.id,
+        category: t.category,
+        label: t.title,
+      }));
+    }
+  }
+  const byTask = new Map<string, Category>();
+  for (const cell of cells) {
+    if (cell.taskId) byTask.set(cell.taskId, cell.category);
+  }
+  const inferred = [...byTask.entries()].map(([id, category]) => ({
+    id,
+    category,
+  }));
+  if (inferred.length === 0) {
+    return CATEGORY_ORDER.map((c) => ({
+      taskId: c,
+      category: c,
+      label: CAT_SHORT[c],
+    }));
+  }
+  return labeledTaskTitles(inferred).map((t) => ({
+    taskId: t.id,
+    category: t.category,
+    label: t.title,
+  }));
+}
 
 function shortName(id: string): string {
   const slash = id.lastIndexOf("/");
   return slash === -1 ? id : id.slice(slash + 1);
 }
 
-/** Candidates × categories matrix with keyboard nav (plans/09 §2.3, plans/15 §A1). */
+/** Candidates × tasks matrix with keyboard nav (plans/09 §2.3, plans/15 §A1). */
 export function ArenaGrid() {
   const runId = useRunStore((s) => s.run.id);
   const candidates = useRunStore((s) => s.candidates);
@@ -35,17 +90,10 @@ export function ArenaGrid() {
   const runStatus = useRunStore((s) => s.run.status);
   const parameters = useRunStore((s) => s.run.parameters);
 
-  const categories = useMemo(() => {
-    const fromParams = parameters.categories;
-    if (Array.isArray(fromParams) && fromParams.length > 0) {
-      return CATEGORY_ORDER.filter((c) => (fromParams as string[]).includes(c));
-    }
-    // Infer from cells
-    const present = new Set<Category>();
-    for (const c of cells.values()) present.add(c.category);
-    if (present.size === 0) return [...CATEGORY_ORDER];
-    return CATEGORY_ORDER.filter((c) => present.has(c));
-  }, [cells, parameters.categories]);
+  const columns = useMemo(
+    () => columnsFromRun(parameters, cells.values()),
+    [cells, parameters],
+  );
 
   const terminal = isTerminal(runStatus);
   const [focus, setFocus] = useState({ row: 0, col: 0 });
@@ -63,10 +111,10 @@ export function ArenaGrid() {
     (dRow: number, dCol: number) => {
       setFocus((f) => ({
         row: Math.max(0, Math.min(candidates.length - 1, f.row + dRow)),
-        col: Math.max(0, Math.min(categories.length - 1, f.col + dCol)),
+        col: Math.max(0, Math.min(columns.length - 1, f.col + dCol)),
       }));
     },
-    [candidates.length, categories.length],
+    [candidates.length, columns.length],
   );
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -87,21 +135,20 @@ export function ArenaGrid() {
       setFocus((f) => ({ ...f, col: 0 }));
     } else if (e.key === "End") {
       e.preventDefault();
-      setFocus((f) => ({ ...f, col: categories.length - 1 }));
+      setFocus((f) => ({ ...f, col: columns.length - 1 }));
     }
   };
 
   const rowAvg = (candidateId: string): number | null => {
     const scores: number[] = [];
-    for (const cat of categories) {
-      const cell = cells.get(cellKey(candidateId, cat));
+    for (const col of columns) {
+      const cell = cells.get(cellKey(candidateId, col.taskId));
       if (cell?.medianAcrossTrials != null) scores.push(cell.medianAcrossTrials);
     }
     if (scores.length === 0) return null;
     return scores.reduce((a, b) => a + b, 0) / scores.length;
   };
 
-  // Accordion list <640px
   if (narrow) {
     return (
       <div className="flex flex-col gap-4">
@@ -114,16 +161,16 @@ export function ArenaGrid() {
               </span>
             </summary>
             <ul className="flex flex-col gap-1 border-t border-line-subtle px-2 py-2">
-              {categories.map((cat) => {
-                const cell = cells.get(cellKey(cand, cat));
+              {columns.map((col) => {
+                const cell = cells.get(cellKey(cand, col.taskId));
                 return (
-                  <li key={cat}>
+                  <li key={col.taskId}>
                     <Link
-                      href={buildCellHref(runId, cand, cat)}
-                      data-testid={`cell-${cand}-${cat}`}
+                      href={buildCellHref(runId, cand, col.category, null, col.taskId)}
+                      data-testid={`cell-${cand}-${col.taskId}`}
                       className="flex w-full items-center justify-between rounded-sm px-2 py-2 text-left text-sm hover:bg-ink-800"
                     >
-                      <span className="text-dim">{CAT_SHORT[cat]}</span>
+                      <span className="text-dim">{col.label}</span>
                       <span className="font-mono tabular-nums text-body">
                         {cell?.medianAcrossTrials != null
                           ? formatScore(cell.medianAcrossTrials)
@@ -144,24 +191,23 @@ export function ArenaGrid() {
     <div className="overflow-x-auto" onKeyDown={onKeyDown}>
       <div
         role="grid"
-        aria-label="Arena: candidates by category"
+        aria-label="Arena: candidates by task"
         className="inline-grid gap-1"
         style={{
-          gridTemplateColumns: `minmax(8rem,10rem) repeat(${categories.length}, 6rem) 4rem`,
+          gridTemplateColumns: `minmax(8rem,10rem) repeat(${columns.length}, 6rem) 4rem`,
         }}
       >
-        {/* Header row */}
         <div role="row" className="contents">
           <div role="columnheader" className="px-2 py-1 text-xs text-faint">
             Model
           </div>
-          {categories.map((cat) => (
+          {columns.map((col) => (
             <div
-              key={cat}
+              key={col.taskId}
               role="columnheader"
               className="px-1 py-1 text-center font-mono text-xs text-dim"
             >
-              {CAT_SHORT[cat]}
+              {col.label}
             </div>
           ))}
           <div role="columnheader" className="px-1 py-1 text-center text-xs text-faint">
@@ -183,19 +229,20 @@ export function ArenaGrid() {
                   <span className="truncate">{shortName(cand)}</span>
                 </Tooltip>
               </div>
-              {categories.map((cat, col) => {
-                const focused = focus.row === row && focus.col === col;
+              {columns.map((col, colIdx) => {
+                const focused = focus.row === row && focus.col === colIdx;
                 return (
                   <ArenaCell
-                    key={cat}
-                    cell={cells.get(cellKey(cand, cat))}
+                    key={col.taskId}
+                    cell={cells.get(cellKey(cand, col.taskId))}
                     candidateModelId={cand}
-                    category={cat}
+                    category={col.category}
+                    taskId={col.taskId}
                     runTerminal={terminal}
                     focused={focused}
-                    href={buildCellHref(runId, cand, cat)}
+                    href={buildCellHref(runId, cand, col.category, null, col.taskId)}
                     tabIndex={focused ? 0 : -1}
-                    onFocus={() => setFocus({ row, col })}
+                    onFocus={() => setFocus({ row, col: colIdx })}
                   />
                 );
               })}

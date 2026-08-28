@@ -1,6 +1,7 @@
 /**
  * Browser-side OpenRouter BYOK store.
- * Key lives only in localStorage — never sent to SQLite / never logged.
+ * Key lives in localStorage, is sent to this server for OpenRouter, and is
+ * held in process memory for a run. Never SQLite, disk, session, or logs.
  */
 
 export const API_KEY_STORAGE_KEY = "ai-judge:openrouter-key";
@@ -65,16 +66,23 @@ export async function apiFetch(
   return fetch(input, { ...init, headers });
 }
 
+function errorCode(body: unknown): string | undefined {
+  if (!body || typeof body !== "object" || !("error" in body)) return undefined;
+  return (body as { error?: { code?: string } }).error?.code;
+}
+
 /** True when a response is the structured NEEDS_KEY 401. */
 export function isNeedsKeyResponse(
   status: number,
   body: unknown,
 ): boolean {
-  if (status !== 401) return false;
-  const code =
-    body &&
-    typeof body === "object" &&
-    "error" in body &&
-    (body as { error?: { code?: string } }).error?.code;
-  return code === "NEEDS_KEY";
+  return status === 401 && errorCode(body) === "NEEDS_KEY";
+}
+
+/** True when a response is the structured NEEDS_LOGIN 401. */
+export function isNeedsLoginResponse(
+  status: number,
+  body: unknown,
+): boolean {
+  return status === 401 && errorCode(body) === "NEEDS_LOGIN";
 }

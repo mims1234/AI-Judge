@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { isoFromMs } from "@/lib/api-helpers";
+import { isInstrumentWipeout } from "@/lib/bundles/wipeout";
 import { prepare } from "@/lib/db";
 import type { Category } from "@/lib/schemas";
 import { RunSnapshotSchema } from "@/lib/schemas";
+import { canControlRun } from "@/lib/server/runControl";
+import type { AppUser } from "@/lib/server/users";
 
 /**
  * Server-side assembly of the canonical run snapshot (RunSnapshotSchema),
@@ -12,7 +15,10 @@ import { RunSnapshotSchema } from "@/lib/schemas";
 
 export type RunSnapshot = z.infer<typeof RunSnapshotSchema>;
 
-export function getRunSnapshot(id: string): RunSnapshot | null {
+export function getRunSnapshot(
+  id: string,
+  viewer?: AppUser | null,
+): RunSnapshot | null {
   const run = prepare(`SELECT * FROM runs WHERE id = ?`).get(id) as
     | {
         id: string;
@@ -26,6 +32,7 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
         started_at: number | null;
         finished_at: number | null;
         last_event_id: number;
+        launched_by_user_id?: string | null;
       }
     | undefined;
 
@@ -102,7 +109,7 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
     `SELECT DISTINCT t.id, t.category, t.task_body, t.token_limit
      FROM tasks t JOIN task_results tr ON tr.task_id = t.id
      WHERE tr.run_id = ?
-     ORDER BY t.category`,
+     ORDER BY t.category ASC, t.rowid ASC`,
   ).all(id) as Array<{
     id: string;
     category: Category;
@@ -290,12 +297,18 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
   });
 
   let bundleRunScore: number | null = null;
+  const candidateScores = prepare(
+    `SELECT candidate_model_id, overall_score FROM bundle_run_scores
+     WHERE run_id = ?`,
+  ).all(id) as Array<{ candidate_model_id: string; overall_score: number | null }>;
   if (run.status === "completed" || run.status === "cancelled" || run.status === "incomplete") {
-    const brs = prepare(
-      `SELECT AVG(overall_score) AS s FROM bundle_run_scores
-       WHERE run_id = ? AND overall_score IS NOT NULL`,
-    ).get(id) as { s: number | null };
-    bundleRunScore = brs.s;
+    const scored = candidateScores
+      .map((r) => r.overall_score)
+      .filter((s): s is number => s != null);
+    bundleRunScore =
+      scored.length > 0
+        ? scored.reduce((a, b) => a + b, 0) / scored.length
+        : null;
   }
 
   let parameters: Record<string, unknown> = {};
@@ -304,6 +317,18 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
   } catch {
     parameters = {};
   }
+
+  let launched_by: { id: string; username: string } | null = null;
+  if (run.launched_by_user_id) {
+    const u = prepare(`SELECT id, username FROM users WHERE id = ?`).get(
+      run.launched_by_user_id,
+    ) as { id: string; username: string } | undefined;
+    if (u) launched_by = u;
+  }
+
+  const origin = prepare(`SELECT origin FROM bundles WHERE id = ?`).get(
+    run.bundle_id,
+  ) as { origin: string } | undefined;
 
   return {
     run: {
@@ -318,12 +343,17 @@ export function getRunSnapshot(id: string): RunSnapshot | null {
       started_at: isoFromMs(run.started_at),
       finished_at: isoFromMs(run.finished_at),
       last_event_id: run.last_event_id,
+      launched_by,
+      can_control: canControlRun(viewer ?? null, run.launched_by_user_id),
     },
     candidates,
     judge_pool: judgePool,
     panels: [...panelMap.values()],
     task_results: taskResults,
     bundle_run_score: bundleRunScore,
+    candidate_scores: candidateScores,
     tasks: taskContentRows,
+    instrument_wipeout:
+      origin?.origin === "custom" ? isInstrumentWipeout(id) : false,
   };
 }

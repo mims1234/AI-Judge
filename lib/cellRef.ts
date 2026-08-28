@@ -61,8 +61,10 @@ export function buildCellHref(
   candidate: string,
   category: Category,
   trial?: number | null,
+  taskId?: string | null,
 ): string {
   const q = new URLSearchParams({ candidate });
   if (trial != null) q.set("trial", String(trial));
+  if (taskId) q.set("task", taskId);
   return `/runs/${encodeURIComponent(runId)}/cell/${category}?${q.toString()}`;
 }

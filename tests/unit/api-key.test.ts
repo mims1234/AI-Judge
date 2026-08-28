@@ -4,7 +4,7 @@ import {
   hasServerKey,
   resolveApiKey,
 } from "@/lib/openrouter";
-import { getAiJudgeMode, resetEnvCache } from "@/lib/env";
+import { getAiJudgeMode, isExplicitDevMode, resetEnvCache } from "@/lib/env";
 import { getKeyStatusInfo } from "@/lib/server/appSettings";
 
 function setNodeEnv(value: string) {
@@ -107,6 +107,23 @@ describe("resolveApiKey (BYOK precedence)", () => {
     process.env.AI_JUDGE_MODE = "production";
     resetEnvCache();
     expect(getAiJudgeMode()).toBe("prod");
+  });
+
+  it("isExplicitDevMode is true only when AI_JUDGE_MODE=dev is set", () => {
+    setNodeEnv("development");
+    delete process.env.AI_JUDGE_MODE;
+    resetEnvCache();
+    expect(getAiJudgeMode()).toBe("dev");
+    expect(isExplicitDevMode()).toBe(false);
+
+    process.env.AI_JUDGE_MODE = "dev";
+    resetEnvCache();
+    expect(isExplicitDevMode()).toBe(true);
+
+    process.env.AI_JUDGE_MODE = "prod";
+    resetEnvCache();
+    expect(getAiJudgeMode()).toBe("prod");
+    expect(isExplicitDevMode()).toBe(false);
   });
 });
 

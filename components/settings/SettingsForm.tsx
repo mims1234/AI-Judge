@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
-import { AppSettingsSchema, type AppSettings } from "@/lib/settings";
+import {
+  AppSettingsSchema,
+  TIMEOUT_SEC_MAX,
+  TIMEOUT_SEC_MIN,
+  type AppSettings,
+} from "@/lib/settings";
 import { useAnnounce } from "@/components/ui/StatusAnnouncer";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
@@ -100,7 +105,12 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
       <h2 id="run-defaults-heading" className="text-xs uppercase tracking-wide text-dim">
         Run defaults
       </h2>
-      <p className="mt-1 text-sm text-dim">These prefill the run wizard.</p>
+      <p className="mt-1 text-sm text-dim">
+        These defaults apply to this host for every signed-in launcher — they
+        are not personal. Concurrency, trials, and budget prefill the run
+        wizard. Request timeout is how long each candidate or judge call may
+        wait when OpenRouter is busy.
+      </p>
 
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label={FIELD_LABELS.candidateConcurrency} error={errors.candidateConcurrency}>
@@ -150,13 +160,17 @@ export function SettingsForm({ initial }: { initial: AppSettings }) {
           </span>
         </Field>
 
-        <Field label={FIELD_LABELS.timeoutSec} error={errors.timeoutSec} helper="30 – 600 seconds">
+        <Field
+          label={FIELD_LABELS.timeoutSec}
+          error={errors.timeoutSec}
+          helper={`${TIMEOUT_SEC_MIN} – ${TIMEOUT_SEC_MAX} seconds. Default 600 (10 min) so queued providers can start.`}
+        >
           <Input
             type="number"
             inputMode="numeric"
-            min={30}
-            max={600}
-            step={10}
+            min={TIMEOUT_SEC_MIN}
+            max={TIMEOUT_SEC_MAX}
+            step={30}
             value={values.timeoutSec}
             onChange={(e) => set("timeoutSec", e.target.valueAsNumber || 0)}
             aria-invalid={!!errors.timeoutSec}

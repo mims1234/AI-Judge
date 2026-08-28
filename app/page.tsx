@@ -7,6 +7,7 @@ import { buttonClasses } from "@/components/ui/Button";
 import { shortId } from "@/lib/format";
 import { queryLeaderboard, type LeaderboardRow } from "@/lib/scoring";
 import { getDefaultBundle } from "@/lib/server/bundles";
+import { getSessionUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,7 @@ const METHODOLOGY = [
   {
     number: "04",
     title: "Rank",
-    body: "Median of judge overalls per task, macro-averaged across categories. Only complete runs enter the leaderboard.",
+    body: "Median of judge overalls per task, then averaged across tasks. Scored runs enter the board, including incomplete ones with penalties. Cancelled runs never do.",
     glyph: (
       <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
         <path d="M4 16V9M10 16V4M16 16v-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -71,8 +72,9 @@ const HONESTY = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
   noStore();
+  const user = await getSessionUser();
 
   const bundle = getDefaultBundle();
   let rows: LeaderboardRow[] = [];
@@ -105,9 +107,15 @@ export default function Home() {
             deterministic validators, seeded blind judge panels, durable SQLite records.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link href="/run" className={buttonClasses({ variant: "primary", size: "lg" })}>
-              Start a benchmark
-            </Link>
+            {user ? (
+              <Link href="/run" className={buttonClasses({ variant: "primary", size: "lg" })}>
+                Start a benchmark
+              </Link>
+            ) : (
+              <Link href="/runs" className={buttonClasses({ variant: "primary", size: "lg" })}>
+                View runs
+              </Link>
+            )}
             <Link href="/leaderboard" className={buttonClasses({ variant: "secondary", size: "lg" })}>
               View leaderboard
             </Link>
@@ -133,9 +141,19 @@ export default function Home() {
       {/* LIVE RANKING PREVIEW */}
       <section className="border-t border-line-subtle py-12">
         {bundle ? (
-          <RankingPreview bundleSlug={bundle.slug} rows={rows} unavailable={unavailable} />
+          <RankingPreview
+            bundleSlug={bundle.slug}
+            rows={rows}
+            unavailable={unavailable}
+            canLaunch={Boolean(user)}
+          />
         ) : (
-          <RankingPreview bundleSlug="mini-benchmark-v1" rows={[]} unavailable={false} />
+          <RankingPreview
+            bundleSlug="mini-benchmark-v1"
+            rows={[]}
+            unavailable={false}
+            canLaunch={Boolean(user)}
+          />
         )}
       </section>
 

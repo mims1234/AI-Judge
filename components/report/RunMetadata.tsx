@@ -60,6 +60,14 @@ export function RunMetadata({ snapshot }: RunMetadataProps) {
             <CopyButton text={run.bundle_hash} label="bundle hash" />
           </dd>
         </div>
+        {run.launched_by && (
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-dim">Launched by</dt>
+            <dd className="mt-0.5 font-mono text-sm text-body">
+              {run.launched_by.username}
+            </dd>
+          </div>
+        )}
         <div>
           <dt className="text-xs uppercase tracking-wide text-dim">Candidates</dt>
           <dd className="mt-0.5 font-mono text-sm text-body">

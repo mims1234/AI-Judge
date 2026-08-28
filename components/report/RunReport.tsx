@@ -14,7 +14,7 @@ import type { Category, RunSnapshot } from "@/lib/schemas";
 export type RunReportProps = {
   snapshot: RunSnapshot;
   eligibilityReason?: string | null;
-  onOpenCell?: (candidate: string, category: Category) => void;
+  onOpenCell?: (candidate: string, category: Category, taskId?: string) => void;
 };
 
 function countTasks(snapshot: RunSnapshot) {
@@ -69,6 +69,42 @@ export function RunReport({
 
   return (
     <div className="flex flex-col gap-8" data-testid="run-report">
+      {snapshot.instrument_wipeout && (
+        <div
+          role="alert"
+          data-testid="wipeout-banner"
+          className="flex items-start gap-3 rounded-md border border-fail-400/40 bg-fail-900 px-4 py-3"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            aria-hidden="true"
+            className="mt-0.5 shrink-0 text-fail-400"
+          >
+            <path
+              d="M8 1.5 15 14H1L8 1.5Z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinejoin="round"
+            />
+            <path d="M8 6v3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <circle cx="8" cy="11.8" r="0.9" fill="currentColor" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-fail-400">
+              Instrument wipeout
+            </p>
+            <p className="mt-0.5 text-sm leading-6 text-body">
+              Every candidate failed the pinned{" "}
+              <span className="font-mono">{`{ "answer" }`}</span> schema on
+              attempted tasks. Infra and judging failures without a schema check
+              are ignored.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="Total score"

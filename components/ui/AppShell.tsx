@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
 import {
   API_KEY_CHANGED_EVENT,
   hasStoredApiKey,
 } from "@/lib/client/apiKey";
+import { AuthBar } from "@/components/auth/AuthBar";
 import { StatusDot } from "@/components/ui/StatusDot";
+import { isFoundingAdmin } from "@/lib/staff";
 
 const NAV_LINKS = [
   { href: "/models", label: "Models" },
@@ -65,10 +68,12 @@ export function AppShell({
   serverConfigured?: boolean;
 }) {
   const pathname = usePathname();
+  const { data: session, status } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeRun, setActiveRun] = useState<RunningRun | null>(null);
-  const [needsBrowserKey, setNeedsBrowserKey] = useState(false);
+  const [hasBrowserKey, setHasBrowserKey] = useState(false);
   const [navPending, setNavPending] = useState(false);
+  const [liveAdmin, setLiveAdmin] = useState<boolean | null>(null);
 
   // Close the mobile menu on navigation + clear top progress cue.
   useEffect(() => {
@@ -76,11 +81,9 @@ export function AppShell({
     setNavPending(false);
   }, [pathname]);
 
-  // BYOK nav hint — only when neither browser key nor dev env fallback exists.
+  // BYOK — Models nav and the "Add API key" chip follow the browser key.
   useEffect(() => {
-    const sync = () => {
-      setNeedsBrowserKey(!serverConfigured && !hasStoredApiKey());
-    };
+    const sync = () => setHasBrowserKey(hasStoredApiKey());
     sync();
     window.addEventListener(API_KEY_CHANGED_EVENT, sync);
     window.addEventListener("storage", sync);
@@ -88,7 +91,48 @@ export function AppShell({
       window.removeEventListener(API_KEY_CHANGED_EVENT, sync);
       window.removeEventListener("storage", sync);
     };
-  }, [serverConfigured]);
+  }, []);
+
+  // Staff nav — hide until /api/me confirms. Founding Discord id may show immediately
+  // because that account cannot be demoted. Stale JWT "moderator" is ignored.
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      setLiveAdmin(false);
+      return;
+    }
+    if (status !== "authenticated" || !session?.user?.id) return;
+    setLiveAdmin(null);
+    let cancelled = false;
+    void fetch("/api/me", { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) {
+          if (!cancelled) setLiveAdmin(false);
+          return;
+        }
+        const json = (await res.json()) as { canAccessAdmin?: boolean };
+        if (!cancelled) setLiveAdmin(Boolean(json.canAccessAdmin));
+      })
+      .catch(() => {
+        if (!cancelled) setLiveAdmin(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [status, session?.user?.id]);
+
+  const showAdmin =
+    isFoundingAdmin(session?.user?.discord_id) || liveAdmin === true;
+  const signedIn = status === "authenticated";
+  const needsBrowserKey = signedIn && !serverConfigured && !hasBrowserKey;
+  const hideKeyChip =
+    pathname === "/settings" ||
+    pathname.startsWith("/run") ||
+    pathname.startsWith("/bundles/new");
+  const navLinks = NAV_LINKS.filter((link) => {
+    if (link.href === "/settings") return signedIn;
+    if (link.href === "/models") return signedIn;
+    return true;
+  });
 
   // Run-in-progress indicator — cheap poll, silent on failure.
   useEffect(() => {
@@ -145,7 +189,7 @@ export function AppShell({
         </Link>
 
         <nav aria-label="Primary" className="hidden items-center gap-1 lg:flex">
-          {NAV_LINKS.map((link) => (
+          {navLinks.map((link) => (
             <Link
               key={link.href}
               href={link.href}
@@ -156,15 +200,26 @@ export function AppShell({
               {link.label}
             </Link>
           ))}
+          {showAdmin && (
+            <Link
+              href="/admin"
+              onClick={markNav}
+              data-testid="admin-nav"
+              className={linkClasses(isActive(pathname, "/admin"))}
+              aria-current={isActive(pathname, "/admin") ? "page" : undefined}
+            >
+              Admin
+            </Link>
+          )}
         </nav>
 
         <div className="ml-auto flex items-center gap-3">
-          {needsBrowserKey && pathname !== "/settings" && (
+          {needsBrowserKey && !hideKeyChip && (
             <Link
               href="/settings"
               className="flex items-center gap-2 rounded-sm border border-warn-400/40 bg-warn-900/50 px-2.5 py-1.5 text-xs text-warn-400 transition-colors duration-150 hover:border-warn-400/70"
             >
-              <StatusDot tone="error" />
+              <StatusDot tone="warn" />
               Add API key
             </Link>
           )}
@@ -178,6 +233,10 @@ export function AppShell({
               Run in progress
             </Link>
           )}
+
+          <div className="hidden lg:block">
+            <AuthBar />
+          </div>
 
           <button
             type="button"
@@ -207,7 +266,7 @@ export function AppShell({
           onKeyDown={onMenuKeyDown}
         >
           <div className="flex flex-col gap-1">
-            {NAV_LINKS.map((link) => (
+            {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -221,6 +280,20 @@ export function AppShell({
                 {link.label}
               </Link>
             ))}
+            {showAdmin && (
+              <Link
+                href="/admin"
+                onClick={markNav}
+                data-testid="admin-nav-mobile"
+                className={cn(linkClasses(isActive(pathname, "/admin")), "px-3 py-2.5")}
+                aria-current={isActive(pathname, "/admin") ? "page" : undefined}
+              >
+                Admin
+              </Link>
+            )}
+            <div className="mt-2 border-t border-line-subtle pt-2">
+              <AuthBar compact />
+            </div>
           </div>
         </nav>
       )}

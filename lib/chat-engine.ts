@@ -8,6 +8,7 @@ import { getDb, prepare } from "@/lib/db";
 import { CHAT_CLASSIFY_PROMPT, chatRubricFor } from "@/lib/bundles/chat-rubrics";
 import { withJudgeEnglishOnly } from "@/lib/bundles/judge-language";
 import { OpenRouterError, streamChat, type StreamChatResult } from "@/lib/openrouter";
+import { getCallDeadlineMs, getMaxRetries } from "@/lib/server/appSettings";
 import {
   computedOverall,
   median,
@@ -416,7 +417,8 @@ class ChatEngineImpl implements ChatEngine {
         temperature: 0.7,
         maxTokens: CHAT_LIMITS.ASSISTANT_MAX_TOKENS,
         signal: abort.signal,
-        deadlineMs: 300_000,
+        deadlineMs: getCallDeadlineMs(),
+        maxRetries: getMaxRetries(),
         apiKey: key,
         onDelta,
         onRetry: (attempt, delayMs, reason) => {
@@ -778,6 +780,7 @@ class ChatEngineImpl implements ChatEngine {
         responseFormat: { name: opts.schemaName, schema: opts.jsonSchema },
         signal: AbortSignal.timeout(opts.deadlineMs),
         deadlineMs: opts.deadlineMs,
+        maxRetries: getMaxRetries(),
         allowRetryAfterPartial: true,
         apiKey: opts.apiKey,
         onDelta: (d) =>
@@ -838,7 +841,7 @@ class ChatEngineImpl implements ChatEngine {
       jsonSchema: chatClassificationJsonSchema,
       parse: (text) => parseJsonLoose(text, ChatClassificationSchema),
       maxTokens: CHAT_LIMITS.CLASSIFY_MAX_TOKENS,
-      deadlineMs: 120_000,
+      deadlineMs: getCallDeadlineMs(),
       apiKey,
     });
     this.addCost(sessionId, call.costUsd);
@@ -870,7 +873,7 @@ class ChatEngineImpl implements ChatEngine {
       jsonSchema: judgeOutputJsonSchema,
       parse: (text) => parseJsonLoose(text, JudgeOutputSchema),
       maxTokens: CHAT_LIMITS.JUDGE_MAX_TOKENS,
-      deadlineMs: 240_000,
+      deadlineMs: getCallDeadlineMs(),
       apiKey,
     });
 

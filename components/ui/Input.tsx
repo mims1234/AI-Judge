@@ -14,6 +14,17 @@ export function Input({ className, ref, ...rest }: InputProps) {
   return <input ref={ref} className={cn(FIELD_BASE, className)} {...rest} />;
 }
 
+export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement>;
+
+export function Textarea({ className, ...rest }: TextareaProps) {
+  return (
+    <textarea
+      className={cn(FIELD_BASE, "min-h-[6rem] resize-y", className)}
+      {...rest}
+    />
+  );
+}
+
 export type SelectProps = React.SelectHTMLAttributes<HTMLSelectElement>;
 
 export function Select({ className, children, ...rest }: SelectProps) {

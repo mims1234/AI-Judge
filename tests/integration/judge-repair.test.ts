@@ -44,10 +44,10 @@ describe("judge repair fixtures (plans/11 §2.2)", () => {
       overall_score: number;
     };
     const computed =
-      (raw.scores.correctness +
-        raw.scores.requirement_compliance +
-        raw.scores.quality +
-        raw.scores.honesty) /
+      (raw.scores.correctness! +
+        raw.scores.requirement_compliance! +
+        raw.scores.quality! +
+        raw.scores.honesty!) /
       4;
     expect(Math.abs(raw.overall_score - computed)).toBeGreaterThan(3);
   });

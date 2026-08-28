@@ -54,7 +54,7 @@ export function PlaygroundSetup({
     return (
       <EmptyState
         title="Model catalog is empty."
-        body="Refresh the catalog from Settings before starting a chat."
+        body="Refresh the catalog after your key is saved, then start a chat."
         action={
           <Link
             href="/settings"

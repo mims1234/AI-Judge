@@ -6,16 +6,14 @@ import { FeedbackChipList } from "@/components/ui/FeedbackChip";
 import { Select } from "@/components/ui/Input";
 import { StreamPanel } from "@/components/ui/StreamPanel";
 import { formatRelativeTime, formatScore } from "@/lib/format";
-import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
-import type { SameTaskAnswer } from "@/lib/analytics/types";
+import type { CompareTaskOption, SameTaskAnswer } from "@/lib/analytics/types";
 
 export type SameTaskAnswersProps = {
   modelIds: string[];
-  initialCategory?: Category;
-  /** Preloaded answers keyed by category (server-fetched for all 8 or just one). */
-  answersByCategory: Partial<Record<Category, SameTaskAnswer[]>>;
-  /** Optional client refetch hook — when category changes without preload. */
-  onCategoryChange?: (category: Category) => void;
+  tasks: CompareTaskOption[];
+  initialTaskId?: string;
+  /** Preloaded answers keyed by task id. */
+  answersByTask: Record<string, SameTaskAnswer[]>;
 };
 
 function modelShort(id: string): string {
@@ -23,20 +21,24 @@ function modelShort(id: string): string {
   return slash === -1 ? id : id.slice(slash + 1);
 }
 
-function capitalize(s: string): string {
-  return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1);
-}
-
-/** Side-by-side archived answers for one category (plans/10 §3.2). */
+/** Side-by-side archived answers for one pack task (plans/10 §3.2). */
 export function SameTaskAnswers({
   modelIds,
-  initialCategory = "coding",
-  answersByCategory,
-  onCategoryChange,
+  tasks,
+  initialTaskId,
+  answersByTask,
 }: SameTaskAnswersProps) {
-  const [category, setCategory] = useState<Category>(initialCategory);
-  const answers = answersByCategory[category] ?? [];
+  const firstId = tasks[0]?.id ?? "";
+  const [taskId, setTaskId] = useState(
+    initialTaskId && tasks.some((t) => t.id === initialTaskId)
+      ? initialTaskId
+      : firstId,
+  );
+  const answers = answersByTask[taskId] ?? [];
   const byId = new Map(answers.map((a) => [a.modelId, a]));
+  const selected = tasks.find((t) => t.id === taskId);
+
+  if (tasks.length === 0) return null;
 
   return (
     <section aria-labelledby="same-task-heading" className="flex flex-col gap-3">
@@ -45,20 +47,16 @@ export function SameTaskAnswers({
           Same-task answers
         </h2>
         <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-dim">
-          Category
+          Task
           <Select
-            value={category}
-            aria-label="Same-task category"
+            value={taskId}
+            aria-label="Same-task prompt"
             className="min-w-[160px]"
-            onChange={(e) => {
-              const c = e.target.value as Category;
-              setCategory(c);
-              onCategoryChange?.(c);
-            }}
+            onChange={(e) => setTaskId(e.target.value)}
           >
-            {CATEGORY_ORDER.map((c) => (
-              <option key={c} value={c}>
-                {capitalize(c)}
+            {tasks.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.title}
               </option>
             ))}
           </Select>
@@ -75,7 +73,7 @@ export function SameTaskAnswers({
                 className="rounded-md border border-dashed border-line-subtle px-3 py-4 text-sm text-dim"
               >
                 <div className="mb-1 text-bright">{modelShort(id)}</div>
-                No complete run for {capitalize(category)}.
+                No scored answer for {selected?.title ?? "this task"}.
               </div>
             );
           }

@@ -7,8 +7,14 @@ import {
   formatUsd,
   formatUsdRange,
 } from "@/lib/format";
-import { apiFetch } from "@/lib/client/apiKey";
+import {
+  API_KEY_CHANGED_EVENT,
+  apiFetch,
+  hasStoredApiKey,
+} from "@/lib/client/apiKey";
 import type { RunDraft } from "@/lib/client/runDraft";
+import { AuthBar } from "@/components/auth/AuthBar";
+import { PublicRecordNotice } from "@/components/legal/PublicRecordNotice";
 import { OverlapWarning } from "@/components/run/OverlapWarning";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Input";
@@ -27,6 +33,8 @@ export function StepReview({
   onGotoStep,
   onLaunch,
   launching,
+  signedIn,
+  serverConfigured,
 }: {
   draft: RunDraft;
   bundleLabel: string;
@@ -34,12 +42,27 @@ export function StepReview({
   onGotoStep: (step: 1 | 2 | 3) => void;
   onLaunch: (seed: number) => void;
   launching: boolean;
+  signedIn: boolean;
+  serverConfigured: boolean;
 }) {
   const [preflight, setPreflight] = useState<PreflightOk | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [confirmLowCap, setConfirmLowCap] = useState(false);
+  const [hasBrowserKey, setHasBrowserKey] = useState(false);
   const reqId = useRef(0);
+  const canEstimate = signedIn && (serverConfigured || hasBrowserKey);
+
+  useEffect(() => {
+    const sync = () => setHasBrowserKey(hasStoredApiKey());
+    sync();
+    window.addEventListener(API_KEY_CHANGED_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(API_KEY_CHANGED_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
 
   const overlap = draft.candidateIds.filter((id) => draft.judgePoolIds.includes(id));
   const escalate = overlap.length > 0 && draft.judgePoolIds.length < 4;
@@ -92,9 +115,16 @@ export function StepReview({
   };
 
   useEffect(() => {
+    if (!canEstimate) {
+      setLoading(false);
+      setError(null);
+      setPreflight(null);
+      return;
+    }
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    canEstimate,
     draft.bundleId,
     draft.candidateIds.join(","),
     draft.judgePoolIds.join(","),
@@ -108,7 +138,12 @@ export function StepReview({
   const warnings = preflight?.warnings ?? [];
   const est = preflight?.estimate;
   const canLaunch =
-    !loading && !error && !!preflight?.ok && blockingErrors.length === 0 && !launching;
+    signedIn &&
+    !loading &&
+    !error &&
+    !!preflight?.ok &&
+    blockingErrors.length === 0 &&
+    !launching;
 
   const tryLaunch = () => {
     if (!est || !preflight) return;
@@ -167,7 +202,13 @@ export function StepReview({
         </label>
       </div>
 
-      {loading && (
+      {!canEstimate && (
+        <p className="rounded-md border border-line-subtle bg-ink-900 px-4 py-3 text-sm text-dim">
+          Cost estimate appears after sign-in and an OpenRouter key.
+        </p>
+      )}
+
+      {canEstimate && loading && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {Array.from({ length: 4 }, (_, i) => (
             <Skeleton key={i} className="h-24 w-full" />
@@ -175,7 +216,7 @@ export function StepReview({
         </div>
       )}
 
-      {error && (
+      {canEstimate && error && (
         <div
           role="alert"
           className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-fail-400/30 bg-fail-900 px-3 py-2 text-sm text-fail-400"
@@ -252,7 +293,17 @@ export function StepReview({
         </ul>
       )}
 
-      <div className="flex justify-end border-t border-line-subtle pt-4">
+      <PublicRecordNotice kind="run" />
+
+      <div className="flex flex-col items-stretch gap-3 border-t border-line-subtle pt-4 sm:items-end">
+        {!signedIn && (
+          <div className="w-full sm:max-w-sm">
+            <p className="mb-2 text-sm text-dim">
+              Sign in to launch — your draft is saved.
+            </p>
+            <AuthBar compact />
+          </div>
+        )}
         <Button
           variant="primary"
           size="lg"

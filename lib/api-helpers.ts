@@ -16,7 +16,10 @@ export type ApiErrorCode =
   | "BUNDLE_NOT_PUBLISHED"
   | "MODEL_UNAVAILABLE"
   | "CONTEXT_TOO_SMALL"
-  | "JUDGE_POOL_TOO_SMALL";
+  | "JUDGE_POOL_TOO_SMALL"
+  | "NEEDS_LOGIN"
+  | "FORBIDDEN"
+  | "SAFETY_REFUSED";
 
 /** Header clients send with a user-supplied OpenRouter key (BYOK). */
 export const OPENROUTER_KEY_HEADER = "x-openrouter-key";
@@ -30,6 +33,20 @@ export function getKeyFromRequest(request: Request): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/** 401 when a signed-in session is required. */
+export function needsLoginError(
+  message = "Sign in with Discord to continue.",
+): NextResponse {
+  return apiError("NEEDS_LOGIN", 401, message);
+}
+
+/** 403 when the session user is not the owner. */
+export function forbiddenError(
+  message = "You cannot do that.",
+): NextResponse {
+  return apiError("FORBIDDEN", 403, message);
 }
 
 /** 401 when no user key and no non-prod env fallback is available. */

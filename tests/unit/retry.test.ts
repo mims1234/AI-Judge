@@ -127,6 +127,37 @@ describe("retry / backoff via streamChat (plans/11 §1.6)", () => {
     expect(hits).toBe(0);
   });
 
+  it("retries OpenRouter 408 request timeouts", async () => {
+    await withMock();
+    mock!.setDefaultChat({
+      kind: "status",
+      status: 408,
+      body: JSON.stringify({ error: { message: "request timed out" } }),
+    });
+    const onRetry = vi.fn();
+    await expect(
+      streamChat({
+        model: "mock/cand-a",
+        messages: [{ role: "user", content: "hi" }],
+        temperature: 0,
+        maxTokens: 16,
+        signal: new AbortController().signal,
+        onDelta: () => {},
+        onRetry,
+        deadlineMs: 60_000,
+      }),
+    ).rejects.toMatchObject({
+      name: "OpenRouterError",
+      kind: "timeout",
+      retryable: true,
+    });
+    expect(onRetry.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const chats = mock!.requests.filter((r) =>
+      r.url.includes("chat/completions"),
+    );
+    expect(chats.length).toBe(3);
+  });
+
   it("OpenRouterError classifies retryable kinds", () => {
     expect(new OpenRouterError("rate_limited", "x").retryable).toBe(true);
     expect(new OpenRouterError("upstream", "x").retryable).toBe(true);

@@ -9,7 +9,7 @@ import {
   maskApiKey,
   setStoredApiKey,
 } from "@/lib/client/apiKey";
-import { formatLatency } from "@/lib/format";
+import { formatLatency, formatUsd } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -20,7 +20,15 @@ export type ApiKeyStatus = {
   envFallbackAllowed: boolean;
 };
 
-type TestResult = { ok: boolean; latencyMs?: number; error?: string } | null;
+type TestResult = {
+  ok: boolean;
+  latencyMs?: number;
+  error?: string;
+  usage_usd?: number | null;
+  limit_usd?: number | null;
+  limit_remaining?: number | null;
+  label?: string | null;
+} | null;
 
 /** OpenRouter BYOK — browser localStorage + optional dev env fallback. */
 export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
@@ -101,7 +109,7 @@ export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
       aria-labelledby="api-key-heading"
       className={cn(
         "rounded-md border bg-ink-900 p-5",
-        hasAnyKey ? "border-line-subtle" : "border-fail-400/40",
+        hasAnyKey ? "border-line-subtle" : "border-warn-400/40",
       )}
     >
       <h2 id="api-key-heading" className="text-xs uppercase tracking-wide text-dim">
@@ -109,7 +117,7 @@ export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
       </h2>
 
       <div className="mt-3 flex flex-wrap items-center gap-2.5">
-        <StatusDot tone={hasAnyKey ? "done" : "error"} />
+          <StatusDot tone={hasAnyKey ? "done" : "warn"} />
         {hydrated && hasAnyKey ? (
           <span className="text-sm text-body">
             Configured{" "}
@@ -120,7 +128,7 @@ export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
             )}
           </span>
         ) : hydrated ? (
-          <span className="text-sm text-fail-400">Not configured</span>
+          <span className="text-sm text-warn-400">Not configured</span>
         ) : (
           <span className="text-sm text-dim">Checking…</span>
         )}
@@ -129,18 +137,23 @@ export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
         )}
       </div>
 
-      <p className="mt-2 text-sm leading-6 text-dim">
-        AI Judge uses{" "}
+      <p className="mt-3 text-sm text-body">
+        Your key lives in this browser — never in our database, on disk, in
+        your session, or in logs.
+      </p>
+      <p className="mt-1.5 text-sm leading-6 text-dim">
+        When you launch a run or generate a pack, this server receives the key
+        to call OpenRouter and holds it in process memory for that job only.
+        Discord never sees it. Get a key at{" "}
         <a
           href="https://openrouter.ai/keys"
           target="_blank"
           rel="noopener noreferrer"
           className="text-teal-300 underline-offset-2 hover:underline"
         >
-          your own OpenRouter API key
+          openrouter.ai/keys
         </a>
-        . It is stored only in this browser&apos;s local storage and sent with
-        AI requests — never written to the database.
+        .
       </p>
 
       {status.envFallbackAllowed && status.serverConfigured && !browserConfigured && (
@@ -151,19 +164,10 @@ export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
       )}
 
       {!hasAnyKey && (
-        <div className="mt-3 rounded-md border border-fail-400/30 bg-fail-900 p-3">
-          <p className="text-sm text-fail-400">
+        <div className="mt-3 rounded-md border border-warn-400/30 bg-warn-900/40 p-3">
+          <p className="text-sm text-warn-400">
             Paste an OpenRouter key below to unlock runs, preflight, and catalog
-            refresh. Get one at{" "}
-            <a
-              href="https://openrouter.ai/keys"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline underline-offset-2"
-            >
-              openrouter.ai/keys
-            </a>
-            .
+            refresh.
           </p>
         </div>
       )}
@@ -224,6 +228,34 @@ export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
             </span>
           )}
         </div>
+
+        {result?.ok &&
+          (result.usage_usd != null ||
+            result.limit_usd != null ||
+            result.limit_remaining != null ||
+            result.label) && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {result.label && <Badge title="Key label">{result.label}</Badge>}
+              {result.usage_usd != null && (
+                <Badge title="Total billed usage on this key">
+                  used {formatUsd(result.usage_usd)}
+                </Badge>
+              )}
+              {result.limit_usd != null && (
+                <Badge title="Credit limit on this key">
+                  limit {formatUsd(result.limit_usd)}
+                </Badge>
+              )}
+              {result.limit_remaining != null && (
+                <Badge
+                  tone={result.limit_remaining > 0 ? "teal" : "warn"}
+                  title="Credit remaining on this key"
+                >
+                  remaining {formatUsd(result.limit_remaining)}
+                </Badge>
+              )}
+            </div>
+          )}
       </div>
     </section>
   );

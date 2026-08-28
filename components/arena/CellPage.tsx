@@ -18,6 +18,7 @@ import {
   scoreBand,
 } from "@/lib/format";
 import { renderMarkdown } from "@/lib/markdown";
+import { labeledTaskTitles } from "@/lib/bundles/task-labels";
 import type { Category, RunSnapshot } from "@/lib/schemas";
 import { cellKey, streamKeyCandidate, type JudgeVerdict, type TrialState } from "@/lib/client/runStore";
 import {
@@ -354,21 +355,41 @@ function RawPanel({
 
 /* ---------------- Page ---------------- */
 
+function resolveTask(
+  snapshot: RunSnapshot,
+  category: Category,
+  taskId: string | null,
+) {
+  if (taskId) {
+    const byId = snapshot.tasks.find((t) => t.id === taskId);
+    if (byId) return byId;
+  }
+  return snapshot.tasks.find((t) => t.category === category) ?? undefined;
+}
+
 function CellPageInner({
   runId,
   snapshot,
   candidateModelId,
   category,
   trialFromUrl,
+  taskIdFromUrl,
 }: {
   runId: string;
   snapshot: RunSnapshot;
   candidateModelId: string;
   category: Category;
   trialFromUrl: number | null;
+  taskIdFromUrl: string | null;
 }) {
   const router = useRouter();
-  const cell = useRunStore((s) => s.cells.get(cellKey(candidateModelId, category)));
+  const task = useMemo(
+    () => resolveTask(snapshot, category, taskIdFromUrl),
+    [snapshot, category, taskIdFromUrl],
+  );
+  const cell = useRunStore((s) =>
+    task ? s.cells.get(cellKey(candidateModelId, task.id)) : undefined,
+  );
   const showJudgeStreams = useRunStore((s) => s.showJudgeStreams);
   const api = useRunStoreApi();
 
@@ -403,10 +424,6 @@ function CellPageInner({
   const answerText =
     streamStatus === "streaming" ? buf.text : (trial?.answer.text || buf.text);
 
-  const task = useMemo(
-    () => snapshot.tasks.find((t) => t.category === category),
-    [snapshot.tasks, category],
-  );
   const expectedJudges = useMemo(() => {
     const panel = snapshot.panels.find((p) => p.category === category);
     return panel?.judges.filter(Boolean) ?? [];
@@ -434,7 +451,9 @@ function CellPageInner({
 
   const selectTrial = (t: number) => {
     startTrialTransition(() => {
-      router.replace(buildCellHref(runId, candidateModelId, category, t), {
+      router.replace(
+        buildCellHref(runId, candidateModelId, category, t, task?.id),
+        {
         scroll: false,
       });
     });
@@ -458,7 +477,9 @@ function CellPageInner({
           </Link>
           <div className="min-w-0">
             <h1 className="truncate font-mono text-sm text-bright">
-              {shortName(candidateModelId)} × {category}
+              {shortName(candidateModelId)} ×{" "}
+              {labeledTaskTitles(snapshot.tasks).find((t) => t.id === task?.id)
+                ?.title ?? category}
               {trialIndices.length > 1 && (
                 <span className="text-dim">
                   {" "}
@@ -636,12 +657,14 @@ export function CellPage({
   candidateModelId,
   category,
   trialFromUrl,
+  taskIdFromUrl = null,
 }: {
   runId: string;
   snapshot: RunSnapshot;
   candidateModelId: string;
   category: Category;
   trialFromUrl: number | null;
+  taskIdFromUrl?: string | null;
 }) {
   return (
     <RunStoreProvider runId={runId} initialSnapshot={snapshot}>
@@ -651,6 +674,7 @@ export function CellPage({
         candidateModelId={candidateModelId}
         category={category}
         trialFromUrl={trialFromUrl}
+        taskIdFromUrl={taskIdFromUrl}
       />
     </RunStoreProvider>
   );

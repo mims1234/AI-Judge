@@ -1,5 +1,7 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { unstable_noStore as noStore } from "next/cache";
+import { pageSeo } from "@/lib/seo";
 import { LeaderboardControls } from "@/components/leaderboard/LeaderboardControls";
 import { LeaderboardTable } from "@/components/leaderboard/LeaderboardTable";
 import { buttonClasses } from "@/components/ui/Button";
@@ -8,13 +10,27 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import {
   DEMO_BUNDLE_HASH,
   DEMO_BUNDLE_SLUG,
+  demoBundleRow,
   demoLeaderboardRows,
 } from "@/lib/mocks/demoAnalytics";
-import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
+import {
+  CATEGORY_ORDER,
+  OFFICIAL_CATEGORY_ORDER,
+  presentCategories,
+  type Category,
+} from "@/lib/schemas";
 import { getLeaderboardData } from "@/lib/server/analytics";
-import { getDefaultBundle, listBundles } from "@/lib/server/bundles";
+import { getDefaultBundle, listBundles, withBundleMeta } from "@/lib/server/bundles";
+import { getSessionUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = pageSeo({
+  title: "Leaderboard",
+  description:
+    "Bundle-scoped LLM rankings from scored runs. Median of three blind judges, averaged across tasks, with reliability and cost. Incomplete runs count with penalties; cancelled runs do not.",
+  path: "/leaderboard",
+});
 
 type SearchParams = Promise<{
   bundle?: string;
@@ -33,6 +49,7 @@ export default async function LeaderboardPage({
   searchParams: SearchParams;
 }) {
   noStore();
+  const user = await getSessionUser();
   const sp = await searchParams;
   const isDemo = sp.demo === "1";
   const category = parseCategory(sp.category);
@@ -62,18 +79,14 @@ export default async function LeaderboardPage({
   const controlBundles =
     bundles.length > 0
       ? bundles
-      : [
-          {
-            id: "demo",
-            name: "Mini Benchmark",
-            version: "v1",
-            slug: DEMO_BUNDLE_SLUG,
-            content_hash: DEMO_BUNDLE_HASH,
-            status: "published" as const,
-            changelog: "",
-            created_at: Date.now(),
-          },
-        ];
+      : [demoBundleRow()];
+  const selectedBundle =
+    controlBundles.find((b) => b.slug === bundleSlug) ?? controlBundles[0];
+  const filterCategories = isDemo
+    ? [...OFFICIAL_CATEGORY_ORDER]
+    : presentCategories(
+        selectedBundle ? withBundleMeta(selectedBundle).availableCategories : [],
+      );
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-10 md:px-10">
@@ -96,6 +109,7 @@ export default async function LeaderboardPage({
         bundles={controlBundles}
         bundleSlug={bundleSlug}
         category={category}
+        categories={filterCategories}
         demo={isDemo}
       />
 
@@ -111,13 +125,19 @@ export default async function LeaderboardPage({
 
       {rows.length === 0 ? (
         <EmptyState
-          title="No complete runs for this bundle yet"
-          body="Only completed bundle runs enter the leaderboard. Infrastructure failures never become zero scores."
+          title="No scored runs for this bundle yet"
+          body="Scored runs enter the leaderboard, including incomplete runs with penalties. Cancelled runs never enter. Infrastructure failures never become zero scores."
           action={
             <div className="flex flex-wrap gap-2">
-              <Link href="/run" className={buttonClasses({ variant: "primary" })}>
-                Start a benchmark
-              </Link>
+              {user ? (
+                <Link href="/run" className={buttonClasses({ variant: "primary" })}>
+                  Start a benchmark
+                </Link>
+              ) : (
+                <Link href="/runs" className={buttonClasses({ variant: "secondary" })}>
+                  View runs
+                </Link>
+              )}
               {!isDemo && (
                 <Link
                   href={`/leaderboard?bundle=${encodeURIComponent(bundleSlug)}&demo=1`}

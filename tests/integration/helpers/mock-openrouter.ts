@@ -115,6 +115,21 @@ export async function startMockOpenRouter(
     requests.push({ method: req.method ?? "GET", url: url.pathname, body });
 
     try {
+      if (req.method === "GET" && url.pathname.endsWith("/auth/key")) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            data: {
+              label: "mock",
+              usage: 0.5,
+              limit: 50,
+              limit_remaining: 49.5,
+            },
+          }),
+        );
+        return;
+      }
+
       if (req.method === "GET" && url.pathname.endsWith("/models")) {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(modelsPayload()));

@@ -8,6 +8,8 @@ import { getChatEngine, isChatStateError } from "@/lib/chat-engine";
 import { prepare } from "@/lib/db";
 import { hasApiKey } from "@/lib/openrouter";
 import { PostChatMessageRequestSchema } from "@/lib/schemas";
+import { mapThrownApiError } from "@/lib/server/httpErrors";
+import { requireSession } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,10 +18,11 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, ctx: Params) {
   try {
+    await requireSession(request);
     const { id } = await ctx.params;
     const userKey = getKeyFromRequest(request);
     if (!hasApiKey(userKey)) {
-      return needsKeyError("Add your OpenRouter API key in Settings to chat.");
+      return needsKeyError("Add your OpenRouter API key to chat.");
     }
 
     let raw: unknown;
@@ -55,7 +58,6 @@ export async function POST(request: Request, ctx: Params) {
       { status: 201 },
     );
   } catch (err) {
-    console.error("[api/chat/sessions/[id]/messages POST]", err);
-    return apiError("INTERNAL_ERROR", 500, "Unexpected error");
+    return mapThrownApiError(err);
   }
 }

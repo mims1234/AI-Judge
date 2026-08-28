@@ -1,4 +1,4 @@
-import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
+import { OFFICIAL_CATEGORY_ORDER, type Category } from "@/lib/schemas";
 
 /**
  * Wizard draft persistence (plans/09 §1.1) — sessionStorage key `ai-judge:run-draft`.
@@ -22,7 +22,7 @@ export type RunDraft = {
 export function defaultRunDraft(partial?: Partial<RunDraft>): RunDraft {
   return {
     bundleId: null,
-    categories: [...CATEGORY_ORDER],
+    categories: [...OFFICIAL_CATEGORY_ORDER],
     candidateIds: [],
     judgePoolIds: [],
     trials: 1,

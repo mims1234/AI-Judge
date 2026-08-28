@@ -1,15 +1,17 @@
 import { apiError } from "@/lib/api-helpers";
 import { getRunSnapshot } from "@/lib/server/runSnapshot";
+import { getSessionUser } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function GET(_request: Request, ctx: Params) {
+export async function GET(request: Request, ctx: Params) {
   try {
     const { id } = await ctx.params;
-    const snapshot = getRunSnapshot(id);
+    const viewer = await getSessionUser(request);
+    const snapshot = getRunSnapshot(id, viewer);
     if (!snapshot) {
       return apiError("RUN_NOT_FOUND", 404, `No run with id ${id}`);
     }

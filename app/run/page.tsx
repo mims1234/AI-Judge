@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { pageSeo } from "@/lib/seo";
 import type { PickerModel } from "@/components/models/ModelPicker";
+import { CreateRunGate } from "@/components/run/CreateRunGate";
 import { RunWizard } from "@/components/run/RunWizard";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { buildDemoCatalog } from "@/lib/mocks/catalog";
@@ -11,6 +13,7 @@ import {
 } from "@/lib/openrouter";
 import { getAppSettings, getKeyStatusInfo } from "@/lib/server/appSettings";
 import {
+  attachBundleMeta,
   getBundleTasks,
   listBundles,
   sortBundlesForPicker,
@@ -18,11 +21,20 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageSeo({
   title: "Configure run",
-};
+  description:
+    "Set up a benchmark: pick a bundle, candidates, and a judge pool, then review cost and launch.",
+  path: "/run",
+  index: false,
+});
 
-type SearchParams = Promise<{ step?: string; candidates?: string; demo?: string }>;
+type SearchParams = Promise<{
+  step?: string;
+  candidates?: string;
+  demo?: string;
+  bundle?: string;
+}>;
 
 function strip(models: Array<{
   id: string;
@@ -53,16 +65,13 @@ function WizardFallback() {
 }
 
 export default async function RunPage({ searchParams }: { searchParams: SearchParams }) {
-  const { demo } = await searchParams;
+  const { demo, bundle: bundleParam } = await searchParams;
   const isDemo = demo === "1";
 
   const published = sortBundlesForPicker(
     listBundles().filter((b) => b.status === "published"),
   );
-  const bundles = published.map((b) => ({
-    ...b,
-    categoryCount: getBundleTasks(b.id).length,
-  }));
+  const bundles = attachBundleMeta(published);
 
   const maxTokenByBundle: Record<string, number> = {};
   for (const b of published) {
@@ -82,14 +91,20 @@ export default async function RunPage({ searchParams }: { searchParams: SearchPa
 
   return (
     <Suspense fallback={<WizardFallback />}>
-      <RunWizard
-        bundles={bundles}
-        maxTokenByBundle={maxTokenByBundle}
-        models={models}
-        settings={settings}
+      <CreateRunGate
         isDemo={isDemo}
         serverConfigured={keyStatus.serverConfigured}
-      />
+      >
+        <RunWizard
+          bundles={bundles}
+          maxTokenByBundle={maxTokenByBundle}
+          models={models}
+          settings={settings}
+          isDemo={isDemo}
+          serverConfigured={keyStatus.serverConfigured}
+          initialBundleSlug={bundleParam ?? null}
+        />
+      </CreateRunGate>
     </Suspense>
   );
 }

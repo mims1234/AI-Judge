@@ -7,6 +7,8 @@ import {
   parseBody,
   parseQuery,
 } from "@/lib/api-helpers";
+import { parseMustMention, getBundleTasks } from "@/lib/server/bundles";
+import { sortCategories } from "@/lib/bundles/custom";
 import { getDb, prepare } from "@/lib/db";
 import { getCachedModel, getModelCatalog, hasApiKey } from "@/lib/openrouter";
 import { getRunEngine, selectPanels } from "@/lib/run-engine";
@@ -16,6 +18,8 @@ import {
   type Category,
 } from "@/lib/schemas";
 import { evaluatePreflight } from "@/lib/scoring";
+import { mapThrownApiError } from "@/lib/server/httpErrors";
+import { requireSession } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,6 +76,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const user = await requireSession(request);
     const userKey = getKeyFromRequest(request);
     if (!hasApiKey(userKey)) {
       return needsKeyError(
@@ -94,9 +99,10 @@ export async function POST(request: Request) {
     if (body.idempotency_key) {
       const existing = prepare(
         `SELECT id, status FROM runs
-         WHERE json_extract(parameters_json, '$.idempotency_key') = ?
+         WHERE launched_by_user_id = ?
+           AND json_extract(parameters_json, '$.idempotency_key') = ?
          ORDER BY created_at DESC LIMIT 1`,
-      ).get(body.idempotency_key) as
+      ).get(user.id, body.idempotency_key) as
         | { id: string; status: string }
         | undefined;
       if (existing) {
@@ -105,7 +111,7 @@ export async function POST(request: Request) {
         return Response.json(
           {
             run_id: existing.id,
-            status: "queued" as const,
+            status: existing.status,
             events_url: `/api/runs/${existing.id}/events`,
           },
           { status: 201 },
@@ -140,6 +146,11 @@ export async function POST(request: Request) {
       pricing_snapshot[id] = getCachedModel(id);
     }
 
+    const originRow = prepare(`SELECT origin FROM bundles WHERE id = ?`).get(
+      preflight.bundle!.id,
+    ) as { origin: string } | undefined;
+    const isCustom = originRow?.origin === "custom";
+
     const frozenTasks = preflight.tasks.map((t) => ({
       id: t.id,
       category: t.category as Category,
@@ -148,11 +159,20 @@ export async function POST(request: Request) {
       judge_prompt: t.judge_prompt,
       output_schema: JSON.parse(t.output_schema) as Record<string, unknown>,
       token_limit: t.token_limit,
+      must_mention: parseMustMention(t.must_mention_json),
+      validator_profile: isCustom
+        ? ("custom_answer_v1" as const)
+        : ("official" as const),
     }));
+
+    const bundle_categories = sortCategories(
+      getBundleTasks(preflight.bundle!.id).map((t) => t.category),
+    );
 
     const parameters = {
       ...body,
       tasks: frozenTasks,
+      bundle_categories,
       pricing_snapshot,
       estimate: preflight.estimate,
     };
@@ -170,10 +190,11 @@ export async function POST(request: Request) {
       prepare(
         `INSERT INTO runs (
           id, bundle_id, bundle_hash, seed, status, parameters_json,
-          budget_usd, trials, total_cost_usd, last_event_id, created_at
+          budget_usd, trials, total_cost_usd, last_event_id, created_at,
+          launched_by_user_id
         ) VALUES (
           @id, @bundle_id, @bundle_hash, @seed, 'queued', @parameters_json,
-          @budget_usd, @trials, 0, 0, @created_at
+          @budget_usd, @trials, 0, 0, @created_at, @launched_by_user_id
         )`,
       ).run({
         id: runId,
@@ -184,6 +205,7 @@ export async function POST(request: Request) {
         budget_usd: body.budget_usd ?? null,
         trials: body.trials_per_pair,
         created_at: now,
+        launched_by_user_id: user.id,
       });
 
       const insCand = prepare(
@@ -243,7 +265,6 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (err) {
-    console.error("[api/runs POST]", err);
-    return apiError("INTERNAL_ERROR", 500, "Unexpected error");
+    return mapThrownApiError(err);
   }
 }

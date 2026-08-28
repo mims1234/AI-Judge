@@ -6,7 +6,7 @@ import {
   parseCategoryScoresJson,
   queryLeaderboard,
 } from "@/lib/scoring";
-import { CATEGORY_ORDER } from "@/lib/schemas";
+import { OFFICIAL_CATEGORY_ORDER } from "@/lib/schemas";
 import { createTestDb, type TestDb } from "@/tests/integration/helpers/test-db";
 
 describe("eligibility rules (penalize, don't discard)", () => {
@@ -31,7 +31,7 @@ describe("eligibility rules (penalize, don't discard)", () => {
   }) {
     const bundleId = seedBundle();
     const runId = randomUUID();
-    const categories = opts.categories ?? [...CATEGORY_ORDER];
+    const categories = opts.categories ?? [...OFFICIAL_CATEGORY_ORDER];
     prepare(
       `INSERT INTO runs (
         id, bundle_id, bundle_hash, seed, status, parameters_json,

@@ -8,16 +8,19 @@ import {
 import { prepare } from "@/lib/db";
 import { getCachedModel, getModelCatalog, hasApiKey } from "@/lib/openrouter";
 import { CreateChatSessionRequestSchema } from "@/lib/schemas";
+import { mapThrownApiError } from "@/lib/server/httpErrors";
+import { requireSession } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
+    await requireSession(request);
     const userKey = getKeyFromRequest(request);
     if (!hasApiKey(userKey)) {
       return needsKeyError(
-        "Add your OpenRouter API key in Settings before starting a chat.",
+        "Add your OpenRouter API key before starting a chat.",
       );
     }
 
@@ -88,7 +91,6 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (err) {
-    console.error("[api/chat/sessions POST]", err);
-    return apiError("INTERNAL_ERROR", 500, "Unexpected error");
+    return mapThrownApiError(err);
   }
 }

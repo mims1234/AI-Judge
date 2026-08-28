@@ -92,10 +92,14 @@ export function KeyGate({
 
   const form = (
     <div className="flex flex-col gap-3">
+      <p className="text-sm text-body">
+        Billing runs through your OpenRouter key. It lives in this browser —
+        never in our database, on disk, in your session, or in logs.
+      </p>
       <p className="text-sm leading-6 text-dim">
-        AI Judge bills through{" "}
-        <strong className="text-body">your</strong> OpenRouter account. Create a
-        key at{" "}
+        The key is sent to this server only to make OpenRouter calls, and is
+        held in process memory for the run. Discord never sees it. Create a key
+        at{" "}
         <a
           href="https://openrouter.ai/keys"
           target="_blank"
@@ -104,7 +108,7 @@ export function KeyGate({
         >
           openrouter.ai/keys
         </a>
-        , paste it here, and we&apos;ll store it only in this browser.
+        .
       </p>
       <Input
         type="password"

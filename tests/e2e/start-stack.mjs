@@ -30,6 +30,21 @@ function startMock() {
     const body = Buffer.concat(chunks).toString("utf8");
     const url = req.url ?? "/";
 
+    if (req.method === "GET" && url.includes("/auth/key")) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          data: {
+            label: "e2e",
+            usage: 1.25,
+            limit: 100,
+            limit_remaining: 98.75,
+          },
+        }),
+      );
+      return;
+    }
+
     if (req.method === "GET" && url.includes("/models")) {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(models));
@@ -40,21 +55,27 @@ function startMock() {
       // Chat playground: classification (step 1) vs rubric scoring (step 2) vs
       // the plain candidate reply. Match classify first — its prompt also
       // contains "judge"-ish words.
+      const isGenerate =
+        body.includes("You write AI-Judge custom benchmark tasks") ||
+        body.includes('"name":"custom_pack"');
       const isChatClassify =
         body.includes("classifying a conversation") ||
         body.includes('"name":"chat_classification"');
       const isJudge =
+        !isGenerate &&
         !isChatClassify &&
         (body.includes("independent benchmark judge") ||
           body.includes("independent conversation judge") ||
           body.includes('"name":"judgment"') ||
           body.includes('"name":"judge_output"') ||
           body.toLowerCase().includes("judge"));
-      const fixture = isChatClassify
-        ? "sse/chat-classify-coding.sse"
-        : isJudge
-          ? "sse/judge-stream-happy.sse"
-          : "sse/candidate-stream-happy.sse";
+      const fixture = isGenerate
+        ? "sse/custom-pack-generate.sse"
+        : isChatClassify
+          ? "sse/chat-classify-coding.sse"
+          : isJudge
+            ? "sse/judge-stream-happy.sse"
+            : "sse/candidate-stream-happy.sse";
       const buf = readFixture(fixture);
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -113,6 +134,8 @@ async function main() {
     // regardless of any AI_JUDGE_MODE=prod in a developer's .env.local.
     // Pre-setting it means @next/env will not override it from .env.local.
     AI_JUDGE_MODE: "dev",
+    AUTH_SECRET: "e2e-auth-secret-at-least-32-characters-long",
+    AUTH_URL: `http://127.0.0.1:${nextPort}`,
   };
 
   const nextBin = path.join(

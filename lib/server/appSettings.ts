@@ -1,6 +1,12 @@
 import { getDb, prepare } from "@/lib/db";
 import { isEnvApiKeyFallbackAllowed } from "@/lib/env";
-import { DEFAULT_APP_SETTINGS, AppSettingsSchema, type AppSettings } from "@/lib/settings";
+import {
+  DEFAULT_APP_SETTINGS,
+  AppSettingsSchema,
+  callDeadlineMs,
+  coerceAppSettings,
+  type AppSettings,
+} from "@/lib/settings";
 
 /**
  * Server-only settings persistence (app_settings single-row table) and
@@ -16,11 +22,21 @@ export function getAppSettings(): AppSettings {
   }
   try {
     const parsed = AppSettingsSchema.safeParse(JSON.parse(row.settings_json));
-    if (parsed.success) return parsed.data;
+    if (parsed.success) return coerceAppSettings(parsed.data);
   } catch {
     // fall through to defaults
   }
   return { ...DEFAULT_APP_SETTINGS };
+}
+
+/** Per-call OpenRouter deadline from the operator timeout setting. */
+export function getCallDeadlineMs(): number {
+  return callDeadlineMs(getAppSettings().timeoutSec);
+}
+
+/** Total OpenRouter attempts (first + retries) from Settings. */
+export function getMaxRetries(): number {
+  return getAppSettings().maxRetries;
 }
 
 export function saveAppSettings(settings: AppSettings): AppSettings {

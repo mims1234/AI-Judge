@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { signInDev } from "./helpers";
 
 /**
  * Chat playground smoke: create → message → judge (plans/16).
@@ -8,8 +9,9 @@ import { expect, test } from "@playwright/test";
  */
 test.describe.configure({ mode: "serial" });
 
-test("create → message → judge flow", async ({ page, request }) => {
-  const res = await request.post("/api/chat/sessions", {
+test("create → message → judge flow", async ({ page }) => {
+  await signInDev(page);
+  const res = await page.request.post("/api/chat/sessions", {
     data: {
       candidate_model_id: "mock/cand-a",
       judge_pool_model_ids: ["mock/judge-1", "mock/judge-2", "mock/judge-3"],

@@ -10,10 +10,16 @@ export type RankingPreviewProps = {
   bundleSlug: string;
   rows: LeaderboardRow[]; // top 5, already sliced
   unavailable?: boolean;
+  canLaunch?: boolean;
 };
 
 /** Live top-5 standings for the landing page (plans/08 §1.2). Server-rendered. */
-export function RankingPreview({ bundleSlug, rows, unavailable = false }: RankingPreviewProps) {
+export function RankingPreview({
+  bundleSlug,
+  rows,
+  unavailable = false,
+  canLaunch = false,
+}: RankingPreviewProps) {
   return (
     <section aria-labelledby="standings-heading" className="w-full">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -41,9 +47,15 @@ export function RankingPreview({ bundleSlug, rows, unavailable = false }: Rankin
           title="No completed runs yet."
           body="Rankings appear after the first complete bundle run."
           action={
-            <Link href="/run" className={buttonClasses({ variant: "primary" })}>
-              Start a benchmark
-            </Link>
+            canLaunch ? (
+              <Link href="/run" className={buttonClasses({ variant: "primary" })}>
+                Start a benchmark
+              </Link>
+            ) : (
+              <Link href="/runs" className={buttonClasses({ variant: "secondary" })}>
+                View runs
+              </Link>
+            )
           }
         />
       ) : (

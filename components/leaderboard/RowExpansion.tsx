@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CategoryRadar } from "@/components/charts/CategoryRadar";
 import { formatPercent, formatScore } from "@/lib/format";
-import { CATEGORY_ORDER } from "@/lib/schemas";
+import { presentCategories } from "@/lib/schemas";
 import type { LeaderboardRow } from "@/lib/scoring";
 
 export type RowExpansionProps = {
@@ -21,7 +21,11 @@ function modelShort(id: string): string {
 
 /** Expanded leaderboard row: radar + per-category table + links (plans/10 §2.2). */
 export function RowExpansion({ row, bundleSlug, demo }: RowExpansionProps) {
-  const values = CATEGORY_ORDER.map((c) => ({
+  const categories = presentCategories([
+    ...Object.keys(row.category_medians),
+    ...Object.keys(row.category_detail),
+  ]);
+  const values = categories.map((c) => ({
     category: c,
     score: row.category_medians[c] ?? row.category_detail[c]?.median ?? null,
   }));
@@ -44,7 +48,7 @@ export function RowExpansion({ row, bundleSlug, demo }: RowExpansionProps) {
   return (
     <div className="grid gap-4 p-3 md:grid-cols-[260px_1fr]">
       <CategoryRadar
-        categories={[...CATEGORY_ORDER]}
+        categories={[...categories]}
         series={[
           {
             label: modelShort(row.model_id),
@@ -70,7 +74,7 @@ export function RowExpansion({ row, bundleSlug, demo }: RowExpansionProps) {
             </tr>
           </thead>
           <tbody>
-            {CATEGORY_ORDER.map((c) => {
+            {categories.map((c) => {
               const d = row.category_detail[c];
               const isBest = best?.category === c;
               const isWorst = worst?.category === c;

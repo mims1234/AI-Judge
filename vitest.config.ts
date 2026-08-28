@@ -18,6 +18,9 @@ export default defineConfig({
       OPENROUTER_API_KEY: "test-key",
       OPENROUTER_BASE_URL: "http://127.0.0.1:9",
       DATABASE_PATH: "./data/ai-judge-vitest-placeholder.sqlite",
+      AUTH_SECRET: "test-auth-secret-at-least-32-characters-long",
+      AUTH_URL: "http://127.0.0.1:3000",
+      AI_JUDGE_MODE: "dev",
     },
     coverage: {
       provider: "v8",

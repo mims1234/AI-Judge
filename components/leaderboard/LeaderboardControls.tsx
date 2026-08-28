@@ -3,13 +3,17 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Select } from "@/components/ui/Input";
-import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
+import {
+  OFFICIAL_CATEGORY_ORDER,
+  type Category,
+} from "@/lib/schemas";
 import type { BundleRow } from "@/lib/bundles/types";
 
 export type LeaderboardControlsProps = {
   bundles: BundleRow[];
   bundleSlug: string;
   category: Category | "overall";
+  categories?: Category[];
   demo?: boolean;
 };
 
@@ -30,6 +34,7 @@ export function LeaderboardControls({
   bundles,
   bundleSlug,
   category,
+  categories = [...OFFICIAL_CATEGORY_ORDER],
   demo,
 }: LeaderboardControlsProps) {
   const router = useRouter();
@@ -71,7 +76,7 @@ export function LeaderboardControls({
             }}
           >
             <option value="overall">Overall</option>
-            {CATEGORY_ORDER.map((c) => (
+            {categories.map((c) => (
               <option key={c} value={c}>
                 {capitalize(c)}
               </option>
