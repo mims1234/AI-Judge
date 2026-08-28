@@ -16,7 +16,7 @@ export const PACK_FLAG_HINT: Record<PackReviewFlag, string> = {
   missing_judge_criteria:
     "Add 4–8 bullets describing what good looks like for this type. Judges see these; candidates do not.",
   answer_leak:
-    "A must-mention phrase already appears in the task body — the candidate can read the hint.",
+    "A must-mention phrase already appears in the task. Save or generate again drops it — you do not need to hunt it down.",
   missing_json_footer:
     "The canonical JSON footer is missing. Informational — the server usually appends it.",
   candidate_id_leak: "A model id leaked into the prompt or must-mention list.",

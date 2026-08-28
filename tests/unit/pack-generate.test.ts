@@ -149,6 +149,29 @@ describe("finalizeGeneratedPack", () => {
     expect(out.tasks[0]!.category).toBe("coding");
     expect(out.tasks[0]!.task_body).toContain(CUSTOM_JSON_FOOTER);
   });
+
+  it("drops must-mention phrases that already appear in the task", () => {
+    const raw = JSON.stringify({
+      tasks: [
+        {
+          category: "coding",
+          task_body:
+            "Do not mutate perm. Write a merge-sort inversion counter that is long enough to pass review.",
+          must_mention: ["do not mutate", "fenwick"],
+          judge_criteria: ["O(n log n)", "Does not mutate the input"],
+        },
+      ],
+    });
+    const out = finalizeGeneratedPack({
+      rawText: raw,
+      slots: [{ category: "coding", prompt: "inversions" }],
+      notes: "",
+    });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.tasks[0]!.must_mention).toEqual(["fenwick"]);
+    expect(out.quality.flags.some((f) => f.flag === "answer_leak")).toBe(false);
+  });
 });
 
 describe("mapThrownApiError", () => {

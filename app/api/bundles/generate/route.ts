@@ -58,7 +58,7 @@ Write exactly one task per slot, in the same order as the slots.
 Treat each slot independently — do not merge them into one theme.
 Keep the given category, including general and other.
 Each task_body is a self-contained English prompt. Do not leak the answer.
-must_mention is a short list of observable phrases judges should look for — not the full solution.
+must_mention is a short list of observable phrases the candidate must NOT be able to read in the task_body — method names, the exact numeric answer, a private token. Never copy wording from task_body.
 judge_criteria is 4–8 bullets describing what good looks like for THIS type and slot.
 Do not invent a new score schema. Do not mention model names or OpenRouter ids.`;
 

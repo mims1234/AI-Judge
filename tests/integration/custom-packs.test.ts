@@ -215,7 +215,7 @@ describe("custom packs", () => {
     expect(locked.status).toBe(403);
   });
 
-  it("rejects publish when a must-mention leaks into the body", () => {
+  it("strips a leaking must-mention so generate-style drafts can publish", () => {
     tdb = createTestDb();
     const alice = user("Alice");
     const draft = createCustomDraft({
@@ -229,7 +229,7 @@ describe("custom packs", () => {
           category: "coding",
           task_body:
             "Please mention the secret phrase UNIQUEPHRASE in the body, and write at least two sentences so this prompt is not considered short.",
-          must_mention: ["UNIQUEPHRASE"],
+          must_mention: ["UNIQUEPHRASE", "hidden-token"],
           judge_criteria: [
             "Handles the required phrase as a hidden check",
             "Explains the approach clearly",
@@ -237,19 +237,12 @@ describe("custom packs", () => {
         },
       ],
     });
-    expect(draft.status).toBe("draft");
-    try {
-      publishCustomDraft(draft.id, alice.id);
-      expect.unreachable("publish should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(Error);
-      expect((err as Error).message).toMatch(/answer leak/i);
-      expect((err as { code?: string }).code).toBe("VALIDATION_ERROR");
-    }
-    const row = prepare(`SELECT status FROM bundles WHERE id = ?`).get(
-      draft.id,
-    ) as { status: string };
-    expect(row.status).toBe("draft");
+    const stored = prepare(
+      `SELECT must_mention_json FROM tasks WHERE bundle_id = ?`,
+    ).get(draft.id) as { must_mention_json: string };
+    expect(JSON.parse(stored.must_mention_json)).toEqual(["hidden-token"]);
+    const published = publishCustomDraft(draft.id, alice.id);
+    expect(published.status).toBe("published");
   });
 
   it("A publishes, B can launch a run, B cannot edit", async () => {

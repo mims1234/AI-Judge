@@ -6,9 +6,11 @@ import { applyCanonicalFooter } from "@/lib/bundles/pack-review";
 
 export {
   applyCanonicalFooter,
+  cleanMustMention,
   containsModelIds,
   CUSTOM_JSON_FOOTER,
   hasCanonicalFooter,
+  mentionAppearsInBody,
   publishBlockReason,
   reviewCustomPack,
   type PackReview,

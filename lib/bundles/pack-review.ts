@@ -33,6 +33,18 @@ function normalizeNeedle(s: string): string {
   return s.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
+export function mentionAppearsInBody(body: string, mention: string): boolean {
+  const needle = normalizeNeedle(mention);
+  return Boolean(needle) && normalizeNeedle(body).includes(needle);
+}
+
+/** Drop judge-only phrases the candidate can already read in the task. */
+export function cleanMustMention(body: string, mentions: string[]): string[] {
+  return mentions
+    .map((m) => m.trim())
+    .filter((m) => m.length > 0 && !mentionAppearsInBody(body, m));
+}
+
 export function containsModelIds(text: string, ids: string[]): boolean {
   for (const id of ids) {
     if (!id) continue;
@@ -65,10 +77,8 @@ export function reviewCustomPack(input: {
     if ((task.judge_criteria ?? []).filter((c) => c.trim()).length === 0) {
       flags.push({ category: task.category, flag: "missing_judge_criteria" });
     }
-    const bodyNorm = normalizeNeedle(body);
     for (const mention of task.must_mention) {
-      const needle = normalizeNeedle(mention);
-      if (needle && bodyNorm.includes(needle)) {
+      if (mentionAppearsInBody(body, mention)) {
         flags.push({ category: task.category, flag: "answer_leak" });
         break;
       }

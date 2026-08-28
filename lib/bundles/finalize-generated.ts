@@ -1,5 +1,6 @@
 import {
   applyCanonicalFooter,
+  cleanMustMention,
   reviewCustomPack,
   type PackReview,
 } from "@/lib/bundles/custom";
@@ -82,7 +83,7 @@ export function finalizeGeneratedPack(input: {
     return {
       category: slot.category,
       task_body: applyCanonicalFooter(t.task_body),
-      must_mention: t.must_mention,
+      must_mention: cleanMustMention(t.task_body, t.must_mention),
       judge_criteria: t.judge_criteria,
     };
   });

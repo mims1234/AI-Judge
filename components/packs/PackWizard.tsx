@@ -32,6 +32,7 @@ import {
   setPackRulesAck,
 } from "@/lib/client/packRules";
 import {
+  cleanMustMention,
   publishBlockReason,
   reviewCustomPack,
   type PackReview,
@@ -257,7 +258,12 @@ export function PackWizard({
         },
       });
       setGenStatus("done");
-      commitTasks(pack.tasks);
+      commitTasks(
+        pack.tasks.map((t) => ({
+          ...t,
+          must_mention: cleanMustMention(t.task_body, t.must_mention),
+        })),
+      );
       if (pack.name && !name.trim()) setName(pack.name);
       setStep("review");
     } catch (err) {
@@ -277,10 +283,13 @@ export function PackWizard({
 
   const persist = async (publish: boolean) => {
     if (!signedIn || tasks.length === 0 || busy || generating) return;
+    const cleaned = tasks.map((t) => ({
+      ...t,
+      must_mention: cleanMustMention(t.task_body, t.must_mention),
+    }));
+    commitTasks(cleaned);
     if (publish) {
-      const reason = publishBlockReason(
-        quality ?? reviewCustomPack({ tasks }),
-      );
+      const reason = publishBlockReason(reviewCustomPack({ tasks: cleaned }));
       if (reason) {
         setError(reason);
         return;
@@ -297,7 +306,7 @@ export function PackWizard({
           brief: briefFromSlots(slots),
           reference_notes: notes,
           generator_model_id: modelId.trim(),
-          tasks,
+          tasks: cleaned,
         }),
       });
       const createdBody = (await created.json()) as {
@@ -650,8 +659,8 @@ export function PackWizard({
               <h2 className="text-xl text-bright">Review</h2>
               <p className="mt-1 text-sm text-dim">
                 Edit bodies and must-mention phrases before publishing.
-                Publish is blocked on answer leak, missing criteria, or a
-                review score below 6.
+                Phrases already in the task are dropped from must-mention.
+                Publish still needs criteria and a score of 6 or more.
               </p>
             </div>
             {quality && (

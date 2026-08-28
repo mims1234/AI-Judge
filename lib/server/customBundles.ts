@@ -9,6 +9,7 @@ import {
   buildBundleJudgePrompt,
   CUSTOM_TOKEN_LIMITS,
   CUSTOM_WRAPPER,
+  cleanMustMention,
   extractJudgeCriteria,
   publishBlockReason,
   reviewCustomPack,
@@ -41,6 +42,17 @@ function draftFromRow(t: TaskRow): CustomTaskDraft {
     must_mention: parseMustMention(t.must_mention_json),
     judge_criteria: extractJudgeCriteria(t.judge_prompt),
   };
+}
+
+function sanitizeDraftTasks(tasks: CustomTaskDraft[]): CustomTaskDraft[] {
+  return tasks.map((t) => {
+    const task_body = applyCanonicalFooter(t.task_body);
+    return {
+      ...t,
+      task_body,
+      must_mention: cleanMustMention(task_body, t.must_mention),
+    };
+  });
 }
 
 function hashFromDraft(input: {
@@ -112,11 +124,7 @@ export function createCustomDraft(input: {
   const slug = uniqueSlug(slugifyName(name), slugTaken);
   const shortId = randomUUID().slice(0, 8);
   const version = `0.0.0-draft-${shortId}`;
-  const normalized = input.tasks.map((t) => ({
-    ...t,
-    task_body: applyCanonicalFooter(t.task_body),
-    must_mention: t.must_mention.map((m) => m.trim()).filter(Boolean),
-  }));
+  const normalized = sanitizeDraftTasks(input.tasks);
   const quality = reviewCustomPack({ tasks: normalized });
   const hash = hashFromDraft({
     name,
@@ -217,12 +225,12 @@ export function updateCustomDraft(
     throw Object.assign(new Error(safety.message), { code: safety.code });
   }
 
-  const normalized = tasks.map((t) => ({
-    ...t,
-    category: CategorySchema.parse(t.category),
-    task_body: applyCanonicalFooter(t.task_body),
-    must_mention: t.must_mention.map((m) => m.trim()).filter(Boolean),
-  }));
+  const normalized = sanitizeDraftTasks(
+    tasks.map((t) => ({
+      ...t,
+      category: CategorySchema.parse(t.category),
+    })),
+  );
   if (normalized.length < 1 || normalized.length > 5) {
     throw Object.assign(new Error("A bundle needs 1–5 prompts."), {
       code: "VALIDATION_ERROR",
@@ -304,10 +312,7 @@ export function publishCustomDraft(bundleId: string, userId: string): BundleRow 
     throw Object.assign(new Error(safety.message), { code: safety.code });
   }
 
-  const normalized = tasks.map((t) => ({
-    ...draftFromRow(t),
-    task_body: applyCanonicalFooter(t.task_body),
-  }));
+  const normalized = sanitizeDraftTasks(tasks.map(draftFromRow));
   const quality = reviewCustomPack({ tasks: normalized });
   const blocked = publishBlockReason(quality);
   if (blocked) {
@@ -330,10 +335,15 @@ export function publishCustomDraft(bundleId: string, userId: string): BundleRow 
 
   const db = getDb();
   db.transaction(() => {
-    for (const task of tasks) {
-      prepare(`UPDATE tasks SET task_body = ? WHERE id = ?`).run(
-        applyCanonicalFooter(task.task_body),
-        task.id,
+    for (let i = 0; i < tasks.length; i++) {
+      const row = tasks[i]!;
+      const cleaned = normalized[i]!;
+      prepare(
+        `UPDATE tasks SET task_body = ?, must_mention_json = ? WHERE id = ?`,
+      ).run(
+        cleaned.task_body,
+        JSON.stringify(cleaned.must_mention),
+        row.id,
       );
     }
     prepare(

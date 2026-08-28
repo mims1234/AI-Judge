@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildBundleJudgePrompt,
+  cleanMustMention,
   CUSTOM_JSON_FOOTER,
   extractJudgeCriteria,
   publishBlockReason,
@@ -114,6 +115,17 @@ describe("publishBlockReason", () => {
         }),
       ),
     ).toBe("Cannot publish: review score 5.9 / 10 is below 6.");
+  });
+});
+
+describe("cleanMustMention", () => {
+  it("keeps judge-only phrases and drops wording already in the task", () => {
+    expect(
+      cleanMustMention(
+        "Do not mutate perm. Count inversions in O(n log n).",
+        ["do not mutate", "fenwick", "  "],
+      ),
+    ).toEqual(["fenwick"]);
   });
 });
 
