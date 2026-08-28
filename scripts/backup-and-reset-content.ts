@@ -2,6 +2,9 @@
  * Dated backup of the live SQLite file, then a clean-slate DB that keeps
  * Discord users (and app_settings). Official presets are not copied.
  *
+ * Does not import the Next app (server-only). Safe to re-run: an existing
+ * dated backup is never overwritten.
+ *
  * Usage (prod host, app stopped):
  *   DATABASE_PATH=/root/mims/AI-Judge/data/ai-judge.sqlite npx tsx scripts/backup-and-reset-content.ts
  */
@@ -9,72 +12,74 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 
-async function main(): Promise<void> {
+const KEEP = new Set(["users", "app_settings", "migrations", "sqlite_sequence"]);
+
+function main(): void {
   const dbPath = process.env.DATABASE_PATH ?? "./data/ai-judge.sqlite";
-  const abs = path.resolve(dbPath);
-  if (!fs.existsSync(abs)) {
-    console.error(`No database at ${abs}`);
+  const live = path.resolve(dbPath);
+  const dir = path.dirname(live);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const backup = path.join(dir, `ai-judge.backup-${stamp}.sqlite`);
+
+  let source: string;
+  if (fs.existsSync(backup)) {
+    source = backup;
+    console.log(`Using existing backup (not overwritten): ${backup}`);
+  } else if (fs.existsSync(live)) {
+    fs.copyFileSync(live, backup);
+    source = backup;
+    console.log(`Backup: ${backup}`);
+  } else {
+    console.error(`No live DB at ${live} and no backup at ${backup}`);
     process.exit(1);
   }
 
-  const stamp = new Date().toISOString().slice(0, 10);
-  const backup = path.join(path.dirname(abs), `ai-judge.backup-${stamp}.sqlite`);
-  fs.copyFileSync(abs, backup);
-  console.log(`Backup: ${backup}`);
+  const work = `${live}.reset-work`;
+  if (fs.existsSync(work)) fs.unlinkSync(work);
+  fs.copyFileSync(source, work);
 
-  const src = new Database(backup, { readonly: true });
-  const users = src.prepare(`SELECT * FROM users`).all() as Record<
-    string,
-    unknown
-  >[];
-  let settings: Record<string, unknown>[] = [];
-  try {
-    settings = src.prepare(`SELECT * FROM app_settings`).all() as Record<
-      string,
-      unknown
-    >[];
-  } catch {
-    settings = [];
+  const db = new Database(work);
+  db.pragma("foreign_keys = OFF");
+  const tables = db
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`,
+    )
+    .all() as Array<{ name: string }>;
+  for (const { name } of tables) {
+    if (KEEP.has(name)) continue;
+    db.exec(`DELETE FROM "${name.replace(/"/g, '""')}"`);
   }
-  src.close();
+  db.pragma("foreign_keys = ON");
 
-  fs.unlinkSync(abs);
-  for (const suffix of ["-wal", "-shm"]) {
-    const extra = abs + suffix;
+  const users = (
+    db.prepare(`SELECT COUNT(*) AS n FROM users`).get() as { n: number }
+  ).n;
+  let official = 0;
+  try {
+    official = (
+      db.prepare(
+        `SELECT COUNT(*) AS n FROM bundles WHERE origin = 'official'`,
+      ).get() as { n: number }
+    ).n;
+  } catch {
+    official = 0;
+  }
+  db.close();
+
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const extra = live + suffix;
     if (fs.existsSync(extra)) fs.unlinkSync(extra);
   }
+  fs.renameSync(work, live);
 
-  process.env.AI_JUDGE_DROP_OFFICIAL = "1";
-  const { getDb, prepare } = await import("@/lib/db");
-  const db = getDb();
-
-  const userCols = users[0] ? Object.keys(users[0]) : [];
-  if (userCols.length > 0) {
-    const placeholders = userCols.map((c) => `@${c}`).join(", ");
-    const ins = db.prepare(
-      `INSERT OR REPLACE INTO users (${userCols.join(", ")}) VALUES (${placeholders})`,
-    );
-    for (const row of users) ins.run(row);
-  }
-
-  if (settings.length > 0) {
-    const cols = Object.keys(settings[0]!);
-    const placeholders = cols.map((c) => `@${c}`).join(", ");
-    const ins = db.prepare(
-      `INSERT OR REPLACE INTO app_settings (${cols.join(", ")}) VALUES (${placeholders})`,
-    );
-    for (const row of settings) ins.run(row);
-  }
-
-  const leftover = prepare(
-    `SELECT COUNT(*) AS n FROM bundles WHERE origin = 'official'`,
-  ).get() as { n: number };
   console.log(
-    `Reset complete. Users restored: ${users.length}. Official bundles left: ${leftover.n}.`,
+    `Reset complete. Users kept: ${users}. Official bundles left: ${official}.`,
   );
 }
 
-void main().catch((err: unknown) => {
+try {
+  main();
+} catch (err: unknown) {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
-});
+}
