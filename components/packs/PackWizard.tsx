@@ -8,7 +8,10 @@ import { ModelPicker } from "@/components/models/ModelPicker";
 import { SignInGate } from "@/components/auth/SignInGate";
 import { PublicRecordNotice } from "@/components/legal/PublicRecordNotice";
 import { PackQualityBadge } from "@/components/bundles/PackQualityBadge";
-import { PackGenerateStream } from "@/components/packs/PackGenerateStream";
+import {
+  PackGenerateErrorBanner,
+  PackGenerateStream,
+} from "@/components/packs/PackGenerateStream";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -18,7 +21,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
 import { formatContext, formatUsd } from "@/lib/format";
 import {
-  PackGenerateError,
+  failureFromUnknown,
+  type PackGenerateFailure,
   streamPackGenerate,
 } from "@/lib/client/packGenerate";
 import {
@@ -160,6 +164,7 @@ export function PackWizard({
     "streaming",
   );
   const [error, setError] = useState<string | null>(null);
+  const [genError, setGenError] = useState<PackGenerateFailure | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -203,6 +208,7 @@ export function PackWizard({
     setGenNotice(null);
     setGenStatus("streaming");
     setError(null);
+    setGenError(null);
     try {
       const pack = await streamPackGenerate({
         body: {
@@ -230,11 +236,9 @@ export function PackWizard({
       setStep("review");
     } catch (err) {
       setGenStatus("error");
-      if (ctrl.signal.aborted || (err instanceof PackGenerateError && err.code === "CANCELLED")) {
-        setError("Generation cancelled.");
-      } else {
-        setError(err instanceof Error ? err.message : "Generate failed");
-      }
+      const failure = failureFromUnknown(err);
+      setGenError(failure);
+      setError(failure.message);
     } finally {
       setGenerating(false);
       if (abortRef.current === ctrl) abortRef.current = null;
@@ -561,7 +565,7 @@ export function PackWizard({
             </Modal>
           </div>
 
-          {(generating || genText || genStatus === "error") && (
+          {(generating || genText.length > 0) && (
             <PackGenerateStream
               phase={genPhase}
               text={genText}
@@ -569,10 +573,14 @@ export function PackWizard({
               modelId={modelId.trim()}
               notice={genNotice}
               status={generating ? "streaming" : genStatus}
+              error={generating ? null : genError}
             />
           )}
 
-          {error && (
+          {genError && !generating && genText.length === 0 && (
+            <PackGenerateErrorBanner error={genError} />
+          )}
+          {error && !genError && (
             <p role="alert" className="text-sm text-fail-400">
               {error}
             </p>

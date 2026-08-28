@@ -1,8 +1,10 @@
 "use client";
 
 import { StreamPanel } from "@/components/ui/StreamPanel";
+import { Badge } from "@/components/ui/Badge";
 import { ProgressRail } from "@/components/ui/ProgressRail";
 import { generateProgress } from "@/lib/bundles/generate-progress";
+import type { PackGenerateFailure } from "@/lib/client/packGenerate";
 import { cn } from "@/lib/cn";
 import { GENERATE_PHASES, type GeneratePhase } from "@/lib/schemas";
 
@@ -13,6 +15,38 @@ const PHASE_LABEL: Record<GeneratePhase, string> = {
   reviewing: "Review",
 };
 
+export function PackGenerateErrorBanner({
+  error,
+}: {
+  error: PackGenerateFailure;
+}) {
+  return (
+    <div
+      role="alert"
+      className="rounded-md border border-fail-400/30 bg-fail-900/40 px-4 py-3"
+      data-testid="pack-generate-error"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="fail">{error.code}</Badge>
+        {error.kind && (
+          <span className="font-mono text-xs text-dim">{error.kind}</span>
+        )}
+        {error.status != null && (
+          <span className="font-mono text-xs text-dim">HTTP {error.status}</span>
+        )}
+        {error.phase && (
+          <span className="font-mono text-xs text-dim">{error.phase}</span>
+        )}
+        {error.chars != null && error.chars > 0 && (
+          <span className="font-mono text-xs text-dim">{error.chars} chars</span>
+        )}
+      </div>
+      <p className="mt-2 text-sm text-fail-400">{error.message}</p>
+      {error.hint && <p className="mt-1 text-sm text-dim">{error.hint}</p>}
+    </div>
+  );
+}
+
 export function PackGenerateStream({
   phase,
   text,
@@ -20,6 +54,7 @@ export function PackGenerateStream({
   modelId,
   notice,
   status,
+  error,
 }: {
   phase: GeneratePhase;
   text: string;
@@ -27,6 +62,7 @@ export function PackGenerateStream({
   modelId: string;
   notice?: string | null;
   status: "streaming" | "done" | "error";
+  error?: PackGenerateFailure | null;
 }) {
   const failed = status === "error";
   const done = status === "done";
@@ -107,6 +143,8 @@ export function PackGenerateStream({
           {notice ? ` · ${notice}` : ""}
         </p>
       </div>
+
+      {error && <PackGenerateErrorBanner error={error} />}
 
       <StreamPanel
         text={text}

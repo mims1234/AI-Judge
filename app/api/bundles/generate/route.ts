@@ -1,4 +1,8 @@
 import { THEME_MAX } from "@/lib/bundles/custom";
+import {
+  describeGenerateError,
+  logGenerateError,
+} from "@/lib/bundles/generate-errors";
 import { finalizeGeneratedPack } from "@/lib/bundles/finalize-generated";
 import { generatedPackJsonSchema } from "@/lib/bundles/generate-schema";
 import { safetyFn } from "@/lib/bundles/safety";
@@ -9,7 +13,7 @@ import {
   needsKeyError,
   parseBody,
 } from "@/lib/api-helpers";
-import { hasApiKey, OpenRouterError, streamChat } from "@/lib/openrouter";
+import { hasApiKey, streamChat } from "@/lib/openrouter";
 import { getCallDeadlineMs, getMaxRetries } from "@/lib/server/appSettings";
 import { GenerateCustomBundleSchema } from "@/lib/schemas";
 import { mapThrownApiError } from "@/lib/server/httpErrors";
@@ -18,35 +22,6 @@ import { requireSession } from "@/lib/server/session";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
-
-function generateErrorPayload(err: unknown): { code: string; message: string } {
-  if (err instanceof OpenRouterError) {
-    if (err.kind === "aborted") {
-      return { code: "CANCELLED", message: "Generation cancelled." };
-    }
-    if (err.kind === "timeout") {
-      return {
-        code: "TIMEOUT",
-        message:
-          "The generator timed out. Try a faster model or fewer prompts.",
-      };
-    }
-    if (err.kind === "auth" || err.kind === "missing_key") {
-      return { code: "NEEDS_KEY", message: err.message };
-    }
-    if (err.kind === "rate_limited") {
-      return { code: "UPSTREAM_ERROR", message: err.message };
-    }
-    return { code: "UPSTREAM_ERROR", message: err.message };
-  }
-  if (err instanceof Error && err.name === "AbortError") {
-    return { code: "CANCELLED", message: "Generation cancelled." };
-  }
-  return {
-    code: "INTERNAL_ERROR",
-    message: err instanceof Error ? err.message : "Generate failed",
-  };
-}
 
 export async function POST(request: Request) {
   try {
@@ -121,6 +96,9 @@ Do not mention model names or OpenRouter ids.`;
 
         let pendingDelta = "";
         let lastFlush = 0;
+        let streamedChars = 0;
+        let phase: "connecting" | "writing" | "validating" | "reviewing" =
+          "connecting";
         const flush = () => {
           if (!pendingDelta) return;
           const delta = pendingDelta;
@@ -130,8 +108,10 @@ Do not mention model names or OpenRouter ids.`;
         };
 
         try {
-          send("generate.status", { phase: "connecting" });
-          send("generate.status", { phase: "writing" });
+          phase = "connecting";
+          send("generate.status", { phase });
+          phase = "writing";
+          send("generate.status", { phase });
 
           const result = await streamChat({
             model: parsed.data.generator_model_id,
@@ -150,6 +130,7 @@ Do not mention model names or OpenRouter ids.`;
             deadlineMs: getCallDeadlineMs(),
             apiKey: userKey,
             onDelta: (d) => {
+              streamedChars += d.length;
               pendingDelta += d;
               if (Date.now() - lastFlush >= 66) flush();
             },
@@ -162,21 +143,29 @@ Do not mention model names or OpenRouter ids.`;
           });
           flush();
 
-          send("generate.status", { phase: "validating" });
+          phase = "validating";
+          send("generate.status", { phase });
           const finalized = finalizeGeneratedPack({
             rawText: result.text,
             slots,
             notes,
           });
           if (!finalized.ok) {
-            send("generate.error", {
+            const payload = {
               code: finalized.code,
               message: finalized.message,
-            });
+              hint: finalized.hint,
+              phase,
+              model: parsed.data.generator_model_id,
+              chars: streamedChars,
+            };
+            logGenerateError(payload, { slots: slots.length });
+            send("generate.error", payload);
             return;
           }
 
-          send("generate.status", { phase: "reviewing" });
+          phase = "reviewing";
+          send("generate.status", { phase });
           send("generate.complete", {
             name: parsed.data.name || slots[0]!.prompt.slice(0, 60),
             brief: finalized.brief,
@@ -186,10 +175,12 @@ Do not mention model names or OpenRouter ids.`;
             quality: finalized.quality,
           });
         } catch (err) {
-          const payload = generateErrorPayload(err);
-          if (payload.code !== "CANCELLED") {
-            console.error("[api] generate", payload.code, payload.message);
-          }
+          const payload = describeGenerateError(err, {
+            phase,
+            model: parsed.data.generator_model_id,
+            chars: streamedChars,
+          });
+          logGenerateError(payload, { slots: slots.length });
           send("generate.error", payload);
         } finally {
           clearInterval(heartbeat);

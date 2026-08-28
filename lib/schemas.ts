@@ -1110,6 +1110,14 @@ export const SseGenerateErrorSchema = z.object({
   data: z.object({
     code: z.string(),
     message: z.string(),
+    hint: z.string().optional(),
+    kind: z.string().optional(),
+    status: z.number().optional(),
+    attempts: z.number().optional(),
+    deliveredDeltas: z.boolean().optional(),
+    phase: z.enum(GENERATE_PHASES).optional(),
+    model: z.string().optional(),
+    chars: z.number().optional(),
   }),
 });
 

@@ -28,6 +28,7 @@ export type FinalizeGeneratedErr = {
   ok: false;
   code: "VALIDATION_ERROR" | "SAFETY_REFUSED";
   message: string;
+  hint?: string;
 };
 
 export function finalizeGeneratedPack(input: {
@@ -43,15 +44,19 @@ export function finalizeGeneratedPack(input: {
       ok: false,
       code: "VALIDATION_ERROR",
       message: "Generator returned invalid JSON. Try another model.",
+      hint: "The model streamed text that could not be parsed as JSON.",
     };
   }
 
   const pack = GeneratedPackSchema.safeParse(parsedPack);
   if (!pack.success) {
+    const first = pack.error.issues[0];
+    const where = first?.path.length ? first.path.join(".") : "root";
     return {
       ok: false,
       code: "VALIDATION_ERROR",
       message: "Generator output did not match the pack schema.",
+      hint: first ? `${where}: ${first.message}` : "Try another generator.",
     };
   }
 
@@ -60,6 +65,7 @@ export function finalizeGeneratedPack(input: {
       ok: false,
       code: "VALIDATION_ERROR",
       message: `Generator returned ${pack.data.tasks.length} tasks; expected ${input.slots.length}.`,
+      hint: "The model merged or skipped a slot. Retry, or simplify the briefs.",
     };
   }
 
@@ -80,7 +86,12 @@ export function finalizeGeneratedPack(input: {
     tasks.flatMap((t) => t.must_mention),
   );
   if (!after.ok) {
-    return { ok: false, code: "SAFETY_REFUSED", message: after.message };
+    return {
+      ok: false,
+      code: "SAFETY_REFUSED",
+      message: after.message,
+      hint: "Edit the briefs or notes so they do not ask for blocked content.",
+    };
   }
 
   return {

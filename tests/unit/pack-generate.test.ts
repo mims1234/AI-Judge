@@ -5,7 +5,11 @@ import {
   generateProgress,
 } from "@/lib/bundles/generate-progress";
 import { CUSTOM_JSON_FOOTER } from "@/lib/bundles/custom";
-import { messageFromFailedResponse } from "@/lib/client/packGenerate";
+import {
+  describeGenerateError,
+  sanitizeUpstreamText,
+} from "@/lib/bundles/generate-errors";
+import { parseFailedGenerateResponse } from "@/lib/client/packGenerate";
 import { OpenRouterError } from "@/lib/openrouter";
 import { mapThrownApiError } from "@/lib/server/httpErrors";
 import { iterateSseFrames, splitSseFrames } from "@/lib/sse-parse";
@@ -60,25 +64,66 @@ describe("generateProgress", () => {
   });
 });
 
-describe("messageFromFailedResponse", () => {
+describe("parseFailedGenerateResponse", () => {
   it("rewrites HTML error pages instead of leaking DOCTYPE", () => {
-    const msg = messageFromFailedResponse(
-      502,
+    const fail = parseFailedGenerateResponse(
+      504,
       "<!DOCTYPE html><html><body>error</body></html>",
       "text/html",
     );
-    expect(msg).not.toContain("<!DOCTYPE");
-    expect(msg).toMatch(/connection dropped/i);
+    expect(fail.code).toBe("HTML_ERROR");
+    expect(fail.message).not.toContain("<!DOCTYPE");
+    expect(fail.message).toMatch(/HTTP 504/);
+    expect(fail.hint).toMatch(/proxy|timed out/i);
   });
 
-  it("prefers JSON error messages", () => {
+  it("prefers JSON error code and message", () => {
+    const fail = parseFailedGenerateResponse(
+      401,
+      JSON.stringify({ error: { code: "NEEDS_LOGIN", message: "Sign in first." } }),
+      "application/json",
+    );
+    expect(fail).toMatchObject({ code: "NEEDS_LOGIN", message: "Sign in first." });
+  });
+});
+
+describe("describeGenerateError", () => {
+  it("does not call an abort-after-tokens a cancel", () => {
+    const err = new OpenRouterError("aborted", "aborted");
+    (err as OpenRouterError & { deliveredDeltas?: boolean }).deliveredDeltas = true;
+    const payload = describeGenerateError(err, {
+      phase: "writing",
+      model: "x-ai/grok-latest",
+      chars: 1200,
+    });
+    expect(payload.code).toBe("ABORTED");
+    expect(payload.message).toMatch(/aborted while the model was still writing/i);
+    expect(payload.hint).toMatch(/proxy/i);
+    expect(payload.deliveredDeltas).toBe(true);
+  });
+
+  it("surfaces OpenRouter rate-limit JSON", () => {
+    const err = new OpenRouterError("rate_limited", "rate limited", {
+      status: 429,
+      retryAfterMs: 8000,
+    });
+    (err as OpenRouterError & { bodyText?: string }).bodyText = JSON.stringify({
+      error: { message: "Rate limit exceeded", metadata: { provider_name: "xAI" } },
+    });
+    const payload = describeGenerateError(err, {
+      phase: "writing",
+      model: "x-ai/grok-latest",
+    });
+    expect(payload.code).toBe("RATE_LIMITED");
+    expect(payload.message).toMatch(/Rate limit exceeded/);
+    expect(payload.message).toMatch(/xAI/);
+    expect(payload.hint).toMatch(/8s/);
+  });
+
+  it("redacts OpenRouter keys in upstream text", () => {
     expect(
-      messageFromFailedResponse(
-        401,
-        JSON.stringify({ error: { message: "Sign in first." } }),
-        "application/json",
-      ),
-    ).toBe("Sign in first.");
+      sanitizeUpstreamText('key sk-or-v1-ABCDEFG1234567890 leaked'),
+    ).not.toMatch(/ABCDEFG/);
   });
 });
 
