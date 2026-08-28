@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { StaffPanel } from "@/components/admin/StaffPanel";
 import { TrendChart } from "@/components/admin/TrendChart";
 import { MiniBar } from "@/components/charts/MiniBar";
+import { Button } from "@/components/ui/Button";
 import { StatCard } from "@/components/ui/StatCard";
 import { Tabs } from "@/components/ui/Tabs";
 import { cn } from "@/lib/cn";
@@ -64,10 +65,7 @@ export function AdminDashboard({
     return () => rangeAbort.current?.abort();
   }, []);
 
-  const onRange = async (key: string) => {
-    const days = Number(key) as TrafficRangeDays;
-    if (!(TRAFFIC_RANGE_DAYS as readonly number[]).includes(days)) return;
-    setRange(days);
+  const loadStats = async (days: TrafficRangeDays) => {
     setLoading(true);
     setError(null);
     rangeAbort.current?.abort();
@@ -94,6 +92,13 @@ export function AdminDashboard({
     }
   };
 
+  const onRange = (key: string) => {
+    const days = Number(key) as TrafficRangeDays;
+    if (!(TRAFFIC_RANGE_DAYS as readonly number[]).includes(days)) return;
+    setRange(days);
+    void loadStats(days);
+  };
+
   const pathMax = Math.max(1, ...stats.paths.map((p) => p.views));
 
   return (
@@ -107,15 +112,27 @@ export function AdminDashboard({
             Site traffic from first-party daily rollups — no raw pageview log.
           </p>
         </div>
-        <Tabs
-          ariaLabel="Traffic range"
-          activeKey={String(range)}
-          onChange={(key) => void onRange(key)}
-          tabs={TRAFFIC_RANGE_DAYS.map((d) => ({
-            key: String(d),
-            label: `${d}d`,
-          }))}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <Tabs
+            ariaLabel="Traffic range"
+            activeKey={String(range)}
+            onChange={onRange}
+            tabs={TRAFFIC_RANGE_DAYS.map((d) => ({
+              key: String(d),
+              label: `${d}d`,
+            }))}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={loading}
+            onClick={() => void loadStats(range)}
+            aria-label="Refresh traffic stats"
+            data-testid="admin-refresh-stats"
+          >
+            ↻ Refresh
+          </Button>
+        </div>
       </header>
 
       {error && (
