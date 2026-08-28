@@ -15,6 +15,7 @@ import {
   hasServerKey,
 } from "@/lib/openrouter";
 import { getKeyStatusInfo } from "@/lib/server/appSettings";
+import { loadPackImproveSeed } from "@/lib/server/customBundles";
 import { getSessionUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
@@ -47,8 +48,15 @@ function strip(
   }));
 }
 
-export default async function NewPackPage() {
+type SearchParams = Promise<{ from?: string }>;
+
+export default async function NewPackPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
   const user = await getSessionUser();
+  const { from } = await searchParams;
   if (!user) {
     return (
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-8 md:px-10">
@@ -106,6 +114,7 @@ export default async function NewPackPage() {
             <PackWizard
               models={models}
               serverConfigured={keyStatus.serverConfigured}
+              seed={from ? loadPackImproveSeed(from, user.id) : null}
             />
           </Suspense>
         </ServiceAccessGate>

@@ -8,6 +8,7 @@ import { ModelPicker } from "@/components/models/ModelPicker";
 import { SignInGate } from "@/components/auth/SignInGate";
 import { PublicRecordNotice } from "@/components/legal/PublicRecordNotice";
 import { PackQualityBadge } from "@/components/bundles/PackQualityBadge";
+import { PackReviewDetails } from "@/components/bundles/PackReviewDetails";
 import {
   PackGenerateErrorBanner,
   PackGenerateStream,
@@ -30,7 +31,7 @@ import {
   PACK_RULES,
   setPackRulesAck,
 } from "@/lib/client/packRules";
-import type { PackReview, PackReviewFlag } from "@/lib/bundles/custom";
+import { reviewCustomPack, type PackReview } from "@/lib/bundles/pack-review";
 import type { GeneratePhase } from "@/lib/schemas";
 import {
   briefFromSlots,
@@ -39,14 +40,6 @@ import {
   type PackSlot,
 } from "@/lib/bundles/task-labels";
 import { CATEGORY_ORDER, type Category } from "@/lib/schemas";
-
-const FLAG_LABEL: Record<PackReviewFlag, string> = {
-  too_short: "Too short",
-  missing_must_mention: "Missing must-mention",
-  answer_leak: "Answer leak",
-  missing_json_footer: "Missing JSON footer",
-  candidate_id_leak: "Candidate id leak",
-};
 
 type PackTask = {
   category: Category;
@@ -133,28 +126,48 @@ function Field({
   );
 }
 
+export type PackWizardSeed = {
+  name: string;
+  notes: string;
+  modelId: string;
+  sourceSlug: string;
+  slots: PackSlot[];
+  tasks: PackTask[];
+  quality: PackReview | null;
+};
+
 export function PackWizard({
   models,
   serverConfigured,
+  seed = null,
 }: {
   models: PickerModel[];
   serverConfigured: boolean;
+  seed?: PackWizardSeed | null;
 }) {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const [step, setStep] = useState<Step>("rules");
-  const [acked, setAcked] = useState(false);
-  const [name, setName] = useState("");
-  const [notes, setNotes] = useState("");
-  const [slots, setSlots] = useState<PackSlot[]>([
-    { category: "coding", prompt: "" },
-    { category: "math", prompt: "" },
-  ]);
-  const [modelId, setModelId] = useState(
-    models.find((m) => m.id.includes("gpt-4.1"))?.id ?? models[0]?.id ?? "",
+  const seeded = Boolean(seed?.tasks.length);
+  const [step, setStep] = useState<Step>(seeded ? "review" : "rules");
+  const [acked, setAcked] = useState(seeded);
+  const [name, setName] = useState(seed?.name ?? "");
+  const [notes, setNotes] = useState(seed?.notes ?? "");
+  const [slots, setSlots] = useState<PackSlot[]>(
+    seed?.slots?.length
+      ? seed.slots
+      : [
+          { category: "coding", prompt: "" },
+          { category: "math", prompt: "" },
+        ],
   );
-  const [tasks, setTasks] = useState<PackTask[]>([]);
-  const [quality, setQuality] = useState<PackReview | null>(null);
+  const [modelId, setModelId] = useState(
+    seed?.modelId ||
+      models.find((m) => m.id.includes("gpt-4.1"))?.id ||
+      models[0]?.id ||
+      "",
+  );
+  const [tasks, setTasks] = useState<PackTask[]>(seed?.tasks ?? []);
+  const [quality, setQuality] = useState<PackReview | null>(seed?.quality ?? null);
   const [busy, setBusy] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genPhase, setGenPhase] = useState<GeneratePhase>("connecting");
@@ -169,11 +182,20 @@ export function PackWizard({
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    if (seeded) {
+      setPackRulesAck();
+      return;
+    }
     if (hasPackRulesAck()) {
       setAcked(true);
       setStep("brief");
     }
-  }, []);
+  }, [seeded]);
+
+  const commitTasks = (next: PackTask[]) => {
+    setTasks(next);
+    setQuality(reviewCustomPack({ tasks: next }));
+  };
 
   const signedIn = Boolean(session?.user?.id);
   const canGenerate =
@@ -230,8 +252,7 @@ export function PackWizard({
         },
       });
       setGenStatus("done");
-      setTasks(pack.tasks);
-      setQuality(pack.quality ?? null);
+      commitTasks(pack.tasks);
       if (pack.name && !name.trim()) setName(pack.name);
       setStep("review");
     } catch (err) {
@@ -627,23 +648,17 @@ export function PackWizard({
             )}
           </div>
 
+          {seed?.sourceSlug && (
+            <p className="text-sm text-dim" data-testid="pack-improve-notice">
+              Copy of{" "}
+              <span className="font-mono text-body">{seed.sourceSlug}</span>.
+              The published pack stays frozen — save or publish this as a new
+              pack.
+            </p>
+          )}
+
           {quality && quality.flags.length > 0 && (
-            <div className="rounded-md border border-warn-400/30 bg-warn-900/30 px-4 py-3">
-              <p className="text-xs uppercase tracking-wide text-warn-400">
-                Review flags
-              </p>
-              <ul className="mt-2 flex flex-col gap-1.5">
-                {quality.flags.map((f, i) => (
-                  <li
-                    key={`${f.category}-${f.flag}-${i}`}
-                    className="flex flex-wrap items-center gap-2 text-sm"
-                  >
-                    <span className="text-body">{CATEGORY_LABELS[f.category]}</span>
-                    <Badge tone="warn">{FLAG_LABEL[f.flag]}</Badge>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <PackReviewDetails quality={quality} />
           )}
 
           {labeledTaskTitles(tasks).map((task, idx) => (
@@ -668,7 +683,7 @@ export function PackWizard({
                   onChange={(e) => {
                     const next = [...tasks];
                     next[idx] = { ...task, task_body: e.target.value };
-                    setTasks(next);
+                    commitTasks(next);
                   }}
                 />
               </label>
@@ -691,7 +706,7 @@ export function PackWizard({
                         .filter(Boolean)
                         .slice(0, 12),
                     };
-                    setTasks(next);
+                    commitTasks(next);
                   }}
                 />
               </label>

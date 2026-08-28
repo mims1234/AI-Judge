@@ -17,6 +17,7 @@ import {
   getBundleTasks,
   getDefaultBundle,
   listBundles,
+  parseMustMention,
   withBundleMeta,
 } from "@/lib/server/bundles";
 import { getSessionUser } from "@/lib/server/session";
@@ -79,6 +80,7 @@ export default async function BundlesPage({
     task_body: t.task_body,
     output_schema: t.output_schema,
     token_limit: t.token_limit,
+    must_mention: parseMustMention(t.must_mention_json),
   }));
   const wrapper = taskRows[0]?.wrapper ?? "";
   const rubric = taskRows[0]?.judge_prompt ?? "";
@@ -118,7 +120,11 @@ export default async function BundlesPage({
         canCreate={Boolean(userId)}
       />
 
-      <BundleHeaderCard bundle={selected} canLaunch={Boolean(userId)} />
+      <BundleHeaderCard
+        bundle={selected}
+        canLaunch={Boolean(userId)}
+        canImprove={Boolean(userId) && selected.origin === "custom"}
+      />
 
       <CollapsibleSection title="Common wrapper" text={wrapper} copyLabel="common wrapper" />
 

@@ -5,6 +5,7 @@ import {
   applyCanonicalFooter,
   computeCustomContentHash,
   CUSTOM_ANSWER_SCHEMA,
+  CUSTOM_JSON_FOOTER,
   CUSTOM_JUDGE_PROMPT,
   CUSTOM_TOKEN_LIMITS,
   CUSTOM_WRAPPER,
@@ -365,4 +366,47 @@ export function tasksToDrafts(tasks: TaskRow[]): CustomTaskDraft[] {
     task_body: t.task_body,
     must_mention: parseMustMention(t.must_mention_json),
   }));
+}
+
+function improvedName(name: string): string {
+  const base = name.replace(/\s+improved$/i, "").trim();
+  return `${base} improved`.slice(0, 80);
+}
+
+function promptFromTaskBody(body: string): string {
+  return body.replace(CUSTOM_JSON_FOOTER, "").trim().slice(0, 2_000);
+}
+
+/** Copy a published (or own draft) custom pack into the create-pack wizard. */
+export function loadPackImproveSeed(
+  from: string,
+  userId: string,
+): {
+  name: string;
+  notes: string;
+  modelId: string;
+  sourceSlug: string;
+  slots: Array<{ category: Category; prompt: string }>;
+  tasks: CustomTaskDraft[];
+  quality: PackReview | null;
+} | null {
+  const bundle = getBundleBySlugOrId(from);
+  if (!bundle || bundle.origin !== "custom") return null;
+  if (bundle.status !== "published" && bundle.author_user_id !== userId) {
+    return null;
+  }
+  const tasks = tasksToDrafts(getBundleTasks(bundle.id));
+  if (tasks.length === 0) return null;
+  return {
+    name: improvedName(bundle.name),
+    notes: bundle.reference_notes ?? "",
+    modelId: bundle.generator_model_id ?? "",
+    sourceSlug: bundle.slug,
+    slots: tasks.map((t) => ({
+      category: t.category,
+      prompt: promptFromTaskBody(t.task_body),
+    })),
+    tasks,
+    quality: reviewCustomPack({ tasks }),
+  };
 }

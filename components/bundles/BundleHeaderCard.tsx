@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AuthorChip } from "@/components/bundles/AuthorChip";
 import { PackQualityBadge } from "@/components/bundles/PackQualityBadge";
+import { PackReviewDetails } from "@/components/bundles/PackReviewDetails";
 import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { CopyButton } from "@/components/ui/CopyButton";
@@ -11,9 +12,11 @@ import type { BundleListItem, BundleRow } from "@/lib/bundles/types";
 export function BundleHeaderCard({
   bundle,
   canLaunch = false,
+  canImprove = false,
 }: {
   bundle: BundleRow | BundleListItem;
   canLaunch?: boolean;
+  canImprove?: boolean;
 }) {
   const created = new Date(bundle.created_at).toLocaleDateString(undefined, {
     year: "numeric",
@@ -78,22 +81,39 @@ export function BundleHeaderCard({
         </p>
       )}
 
+      {quality && quality.flags.length > 0 && (
+        <div className="mt-4">
+          <PackReviewDetails quality={quality} />
+        </div>
+      )}
+
       <p className="mt-3 text-xs text-faint">
         {bundle.origin === "official"
           ? "Published official bundles are immutable — changes create a new version and a new leaderboard."
-          : "Published custom packs are immutable. Each pack has its own board."}
+          : "Published custom packs are immutable. Improve by publishing a new pack — the original stays frozen."}
       </p>
 
-      {bundle.status === "published" && canLaunch && (
-        <div className="mt-4">
-          <Link
-            href={`/run?bundle=${encodeURIComponent(bundle.slug)}`}
-            className={buttonClasses({ variant: "primary" })}
-          >
-            Run this pack →
-          </Link>
+      {(bundle.status === "published" && canLaunch) || canImprove ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {bundle.status === "published" && canLaunch && (
+            <Link
+              href={`/run?bundle=${encodeURIComponent(bundle.slug)}`}
+              className={buttonClasses({ variant: "primary" })}
+            >
+              Run this pack →
+            </Link>
+          )}
+          {canImprove && (
+            <Link
+              href={`/bundles/new?from=${encodeURIComponent(bundle.slug)}`}
+              className={buttonClasses({ variant: "secondary" })}
+              data-testid="pack-improve"
+            >
+              Improve as a new pack →
+            </Link>
+          )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

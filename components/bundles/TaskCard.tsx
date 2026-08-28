@@ -15,6 +15,7 @@ export type TaskCardData = {
   token_limit: number;
   title?: string;
   cardKey?: string;
+  must_mention?: string[];
 };
 
 function capitalize(s: string): string {
@@ -89,6 +90,9 @@ export function TaskCard({
               { key: "prompt", label: "Prompt" },
               { key: "schema", label: "Output schema" },
               { key: "validators", label: "Validators" },
+              ...(task.must_mention && task.must_mention.length > 0
+                ? [{ key: "mentions", label: "Must-mention" }]
+                : []),
             ]}
             activeKey={tab}
             onChange={setTab}
@@ -115,6 +119,32 @@ export function TaskCard({
               <pre className="max-h-96 overflow-auto rounded-md border border-line-subtle bg-ink-950 p-4 pr-12 font-mono text-sm leading-6 text-body">
                 {prettyJson(task.output_schema)}
               </pre>
+            </div>
+          )}
+
+          {tab === "mentions" && task.must_mention && (
+            <div className="mt-4">
+              <p className="mb-2 text-xs text-dim">
+                Judge-only phrases. Candidates never see this list — if a
+                phrase also appears in the prompt, the pack review flags an
+                answer leak.
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {task.must_mention.map((m) => {
+                  const leaked = task.task_body
+                    .toLowerCase()
+                    .includes(m.toLowerCase());
+                  return (
+                    <li
+                      key={m}
+                      className="flex flex-wrap items-center gap-2 rounded-md border border-line-subtle bg-ink-950 px-3 py-2 font-mono text-sm text-body"
+                    >
+                      {m}
+                      {leaked && <Badge tone="warn">in prompt</Badge>}
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
           )}
 
