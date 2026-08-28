@@ -142,7 +142,7 @@ export function ApiKeyCard({ status }: { status: ApiKeyStatus }) {
         your session, or in logs.
       </p>
       <p className="mt-1.5 text-sm leading-6 text-dim">
-        When you launch a run or generate a pack, this server receives the key
+        When you launch a run or generate a bundle, this server receives the key
         to call OpenRouter and holds it in process memory for that job only.
         Discord never sees it. Get a key at{" "}
         <a

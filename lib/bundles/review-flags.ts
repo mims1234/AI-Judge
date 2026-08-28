@@ -3,6 +3,7 @@ import type { PackReview, PackReviewFlag } from "@/lib/bundles/pack-review";
 export const PACK_FLAG_LABEL: Record<PackReviewFlag, string> = {
   too_short: "Too short",
   missing_must_mention: "Missing must-mention",
+  missing_judge_criteria: "Missing judge criteria",
   answer_leak: "Answer leak",
   missing_json_footer: "Missing JSON footer",
   candidate_id_leak: "Candidate id leak",
@@ -12,6 +13,8 @@ export const PACK_FLAG_HINT: Record<PackReviewFlag, string> = {
   too_short: "Task body is under 80 characters.",
   missing_must_mention:
     "Add judge-only phrases the answer should include. Candidates never see these.",
+  missing_judge_criteria:
+    "Add 4–8 bullets describing what good looks like for this type. Judges see these; candidates do not.",
   answer_leak:
     "A must-mention phrase already appears in the task body — the candidate can read the hint.",
   missing_json_footer:
@@ -22,6 +25,7 @@ export const PACK_FLAG_HINT: Record<PackReviewFlag, string> = {
 export const PACK_FLAG_PENALTY: Record<PackReviewFlag, number> = {
   too_short: 2,
   missing_must_mention: 1,
+  missing_judge_criteria: 2,
   answer_leak: 3,
   missing_json_footer: 0,
   candidate_id_leak: 2,

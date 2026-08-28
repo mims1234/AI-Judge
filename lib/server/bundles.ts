@@ -88,6 +88,13 @@ export function listBundles(): BundleRow[] {
   ).all() as BundleRow[];
 }
 
+/** Published user bundles only. Leftover official rows stay out of the product. */
+export function listPublishedUserBundles(): BundleRow[] {
+  return listBundles().filter(
+    (b) => b.status === "published" && b.origin !== "official",
+  );
+}
+
 export function getBundleBySlugOrId(slugOrId: string): BundleRow | null {
   const row = prepare(
     `SELECT ${BUNDLE_SELECT}
@@ -96,29 +103,21 @@ export function getBundleBySlugOrId(slugOrId: string): BundleRow | null {
   return row ?? null;
 }
 
-/** Canonical default = Octant; else oldest published official. */
+/** Newest published user bundle. Official presets are no longer the product default. */
 export function getDefaultBundle(): BundleRow | null {
-  const octant = prepare(
-    `SELECT ${BUNDLE_SELECT}
-      FROM bundles WHERE status = 'published' AND slug = ?`,
-  ).get(DEFAULT_BUNDLE_SLUG) as BundleRow | undefined;
-  if (octant) return octant;
-
   const row = prepare(
     `SELECT ${BUNDLE_SELECT}
       FROM bundles
-      WHERE status = 'published' AND origin = 'official'
-      ORDER BY created_at ASC LIMIT 1`,
+      WHERE status = 'published' AND origin = 'custom'
+      ORDER BY created_at DESC LIMIT 1`,
   ).get() as BundleRow | undefined;
   return row ?? null;
 }
 
-/** Prefer Octant first, then official, then newest custom. */
+/** Newest published first. User bundles before leftover official fixtures. */
 export function sortBundlesForPicker(bundles: BundleRow[]): BundleRow[] {
   return [...bundles].sort((a, b) => {
-    if (a.slug === DEFAULT_BUNDLE_SLUG && b.slug !== DEFAULT_BUNDLE_SLUG) return -1;
-    if (b.slug === DEFAULT_BUNDLE_SLUG && a.slug !== DEFAULT_BUNDLE_SLUG) return 1;
-    if (a.origin !== b.origin) return a.origin === "official" ? -1 : 1;
+    if (a.origin !== b.origin) return a.origin === "custom" ? -1 : 1;
     return b.created_at - a.created_at;
   });
 }

@@ -21,9 +21,9 @@ import { getSessionUser } from "@/lib/server/session";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = pageSeo({
-  title: "Create pack",
+  title: "Create bundle",
   description:
-    "Author a new immutable prompt pack with category tasks, judge prompts, and output schemas.",
+    "Author a new immutable prompt bundle with category tasks, judge prompts, and output schemas.",
   path: "/bundles/new",
   index: false,
 });
@@ -61,11 +61,11 @@ export default async function NewPackPage({
     return (
       <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-8 md:px-10">
         <h1 className="font-display text-2xl uppercase tracking-[0.08em] text-bright">
-          Create pack
+          Create bundle
         </h1>
         <SignInGate
           testId="pack-needs-login"
-          title="Sign in to create a pack"
+          title="Sign in to create a bundle"
           body="Sign in first. Then add an OpenRouter key to generate and publish. Viewing bundles stays open."
         />
         <p className="mt-6 text-center">
@@ -88,23 +88,23 @@ export default async function NewPackPage({
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-8 md:px-10">
       <h1 className="font-display text-2xl uppercase tracking-[0.08em] text-bright">
-        Create pack
+        Create bundle
       </h1>
       <p className="mt-2 text-sm text-dim">
-        A custom pack is 1–5 prompts — same type is allowed. Use General or
-        Other when the eight official types do not fit. Generated with your
-        key, then published to its own board.
+        A bundle is 1–5 prompts — same type is allowed. Use General or Other
+        when the listed types do not fit. Generated with your key, then
+        published as an immutable instrument.
       </p>
       <div className="mt-8">
         <ServiceAccessGate
           embed
           serverConfigured={keyStatus.serverConfigured}
-          heading="Create pack"
+          heading="Create bundle"
           noticeKind="pack"
-          signInTitle="Sign in to create a pack"
+          signInTitle="Sign in to create a bundle"
           signInBody="Sign in first. Then add an OpenRouter key to generate and publish."
           signInTestId="pack-needs-login"
-          keyTitle="Add an OpenRouter key to create a pack"
+          keyTitle="Add an OpenRouter key to create a bundle"
           keyBody="Paste your key below. Generation bills through your key. Viewing bundles stays open."
           keyTestId="pack-needs-key"
           viewHref="/bundles"

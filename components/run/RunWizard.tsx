@@ -26,7 +26,6 @@ import {
   saveRunDraft,
   type RunDraft,
 } from "@/lib/client/runDraft";
-import { DEFAULT_BUNDLE_SLUG } from "@/lib/bundles/defaults";
 import type { AppSettings } from "@/lib/settings";
 
 export type RunWizardProps = {
@@ -41,7 +40,7 @@ export type RunWizardProps = {
 
 function defaultBundleId(bundles: BundleOption[]): string | null {
   return (
-    bundles.find((b) => b.slug === DEFAULT_BUNDLE_SLUG)?.id ??
+    bundles.find((b) => b.origin !== "official")?.id ??
     bundles[0]?.id ??
     null
   );

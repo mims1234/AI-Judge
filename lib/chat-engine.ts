@@ -14,12 +14,12 @@ import {
   median,
   panelConfidenceAdjusted,
 } from "@/lib/scoring";
+import { parseJudgeOutput } from "@/lib/judge-parse";
 import {
   CHAT_CATEGORY_ORDER,
   CHAT_LIMITS,
   ChatClassificationSchema,
   EPHEMERAL_CHAT_SSE_EVENTS,
-  JudgeOutputSchema,
   chatClassificationJsonSchema,
   judgeOutputJsonSchema,
   type ChatCategory,
@@ -416,6 +416,7 @@ class ChatEngineImpl implements ChatEngine {
         messages: history,
         temperature: 0.7,
         maxTokens: CHAT_LIMITS.ASSISTANT_MAX_TOKENS,
+        excludeReasoning: true,
         signal: abort.signal,
         deadlineMs: getCallDeadlineMs(),
         maxRetries: getMaxRetries(),
@@ -777,6 +778,7 @@ class ChatEngineImpl implements ChatEngine {
         ],
         temperature: 0,
         maxTokens: opts.maxTokens,
+        excludeReasoning: true,
         responseFormat: { name: opts.schemaName, schema: opts.jsonSchema },
         signal: AbortSignal.timeout(opts.deadlineMs),
         deadlineMs: opts.deadlineMs,
@@ -871,7 +873,13 @@ class ChatEngineImpl implements ChatEngine {
       user: `CONVERSATION TRANSCRIPT:\n${transcript}`,
       schemaName: "judge_output",
       jsonSchema: judgeOutputJsonSchema,
-      parse: (text) => parseJsonLoose(text, JudgeOutputSchema),
+      parse: (text) => {
+        const r = parseJudgeOutput(text);
+        return {
+          parsed: r.parsed,
+          errors: r.ok ? null : r.evidence,
+        };
+      },
       maxTokens: CHAT_LIMITS.JUDGE_MAX_TOKENS,
       deadlineMs: getCallDeadlineMs(),
       apiKey,

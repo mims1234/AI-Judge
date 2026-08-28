@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const userKey = getKeyFromRequest(request);
     if (!hasApiKey(userKey)) {
       return needsKeyError(
-        "Add your OpenRouter API key in Settings before generating a pack.",
+        "Add your OpenRouter API key in Settings before generating a bundle.",
       );
     }
 
@@ -58,8 +58,9 @@ Write exactly one task per slot, in the same order as the slots.
 Treat each slot independently — do not merge them into one theme.
 Keep the given category, including general and other.
 Each task_body is a self-contained English prompt. Do not leak the answer.
-must_mention is a short list of phrases judges should look for — not the full solution.
-Do not mention model names or OpenRouter ids.`;
+must_mention is a short list of observable phrases judges should look for — not the full solution.
+judge_criteria is 4–8 bullets describing what good looks like for THIS type and slot.
+Do not invent a new score schema. Do not mention model names or OpenRouter ids.`;
 
     const slotBlock = slots
       .map((slot, i) => {
@@ -121,6 +122,7 @@ Do not mention model names or OpenRouter ids.`;
             ],
             temperature: 0.4,
             maxTokens: Math.min(8000, Math.max(4000, slots.length * 1600)),
+            excludeReasoning: true,
             maxRetries: getMaxRetries(),
             responseFormat: {
               name: "custom_pack",

@@ -21,7 +21,7 @@ import {
   getPanelWideSigma,
   type JudgeDetail,
 } from "@/lib/server/analytics";
-import { getDefaultBundle, listBundles } from "@/lib/server/bundles";
+import { getDefaultBundle, listPublishedUserBundles } from "@/lib/server/bundles";
 import { getSessionUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
@@ -87,7 +87,35 @@ export default async function JudgesPage({
   const sp = await searchParams;
   const isDemo = sp.demo === "1";
 
-  const bundles = listBundles().filter((b) => b.status === "published");
+  const bundles = listPublishedUserBundles();
+
+  if (!isDemo && bundles.length === 0) {
+    return (
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-6 py-10 md:px-10">
+        <header className="flex flex-col gap-2">
+          <h1 className="font-display text-2xl uppercase tracking-[0.08em] text-bright">
+            Judges
+          </h1>
+        </header>
+        <EmptyState
+          title="No published bundles yet"
+          body="Create a bundle and run it before judge analytics can appear."
+          action={
+            user ? (
+              <Link href="/bundles/new" className={buttonClasses({ variant: "primary" })}>
+                Create a bundle
+              </Link>
+            ) : (
+              <Link href="/bundles" className={buttonClasses({ variant: "secondary" })}>
+                View bundles
+              </Link>
+            )
+          }
+        />
+      </div>
+    );
+  }
+
   const fallback = getDefaultBundle();
   const bundleSlug =
     sp.bundle || fallback?.slug || bundles[0]?.slug || DEMO_BUNDLE_SLUG;
@@ -99,7 +127,7 @@ export default async function JudgesPage({
           {
             id: "demo",
             slug: DEMO_BUNDLE_SLUG,
-            name: "Mini Benchmark",
+            name: "Demo bundle",
             version: "v1",
           },
         ];

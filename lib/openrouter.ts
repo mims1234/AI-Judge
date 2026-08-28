@@ -88,6 +88,63 @@ export interface StreamChatParams {
   maxRetries?: number;
   /** Explicit OpenRouter key (BYOK). Falls back to env in non-production. */
   apiKey?: string | null;
+  /**
+   * Hide thinking traces. Does **not** stop thinking from billing or
+   * consuming `max_tokens` — we also reserve a thinking budget so the
+   * visible answer still fits (`max_tokens > reasoning.max_tokens`).
+   */
+  excludeReasoning?: boolean;
+  /**
+   * Turn thinking off (`reasoning.effort: "none"`). Used after an
+   * empty+billed completion. A 400 drops the reasoning object entirely.
+   */
+  disableReasoning?: boolean;
+}
+
+export type ReasoningStyle = "exclude_budget" | "exclude" | "off" | "omit";
+
+/** Thinking tokens reserved so content still fits under the shared cap. */
+export function reservedReasoningTokens(contentTokens: number): number {
+  return Math.min(Math.max(256, contentTokens), 4096);
+}
+
+export function initialReasoningStyle(
+  params: Pick<StreamChatParams, "excludeReasoning" | "disableReasoning">,
+): ReasoningStyle {
+  if (params.disableReasoning) return "off";
+  if (params.excludeReasoning) return "exclude_budget";
+  return "omit";
+}
+
+export function stepDownReasoning(style: ReasoningStyle): ReasoningStyle {
+  if (style === "exclude_budget") return "exclude";
+  if (style === "exclude" || style === "off") return "omit";
+  return "omit";
+}
+
+/** Apply OpenRouter `reasoning` + wire `max_tokens`. Never send effort with max_tokens. */
+export function applyReasoningToBody(
+  body: Record<string, unknown>,
+  contentTokens: number,
+  style: ReasoningStyle,
+): void {
+  if (style === "omit") {
+    body.max_tokens = contentTokens;
+    return;
+  }
+  if (style === "off") {
+    body.max_tokens = contentTokens;
+    body.reasoning = { effort: "none" };
+    return;
+  }
+  if (style === "exclude") {
+    body.max_tokens = contentTokens;
+    body.reasoning = { exclude: true };
+    return;
+  }
+  const think = reservedReasoningTokens(contentTokens);
+  body.max_tokens = contentTokens + think;
+  body.reasoning = { exclude: true, max_tokens: think };
 }
 
 export interface StreamChatResult {
@@ -97,12 +154,16 @@ export interface StreamChatResult {
     prompt_tokens: number;
     completion_tokens: number;
     cost_usd: number;
+    /** Present when OpenRouter reports `completion_tokens_details.reasoning_tokens`. */
+    reasoning_tokens?: number;
   };
   provider: string | null;
   latency_ms: number;
   request_hash: string;
   usage_estimated?: boolean;
   degraded_params?: string[];
+  /** Thinking text captured from the stream (not the candidate answer). */
+  reasoning_text?: string;
 }
 
 type GlobalOr = {
@@ -568,14 +629,17 @@ async function parseSseStream(
     prompt_tokens: number;
     completion_tokens: number;
     cost_usd: number | null;
+    reasoning_tokens?: number;
   };
   provider: string | null;
   deliveredDeltas: boolean;
+  reasoning_text: string;
 }> {
   const reader = body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: false });
   let buffer = "";
   let text = "";
+  let reasoning_text = "";
   let finish_reason = "stop";
   let provider: string | null = null;
   let deliveredDeltas = false;
@@ -583,6 +647,7 @@ async function parseSseStream(
     prompt_tokens: 0,
     completion_tokens: 0,
     cost_usd: null as number | null,
+    reasoning_tokens: undefined as number | undefined,
   };
   let lastByteAt = Date.now();
   let idleTimer: ReturnType<typeof setInterval> | null = null;
@@ -600,6 +665,27 @@ async function parseSseStream(
       void reader.cancel().catch(() => undefined);
     }
   }, 5_000);
+
+  const appendReasoningDetails = (details: unknown) => {
+    if (!Array.isArray(details)) return;
+    for (const part of details) {
+      if (typeof part === "string") {
+        reasoning_text += part;
+        continue;
+      }
+      if (!part || typeof part !== "object") continue;
+      const rec = part as {
+        type?: unknown;
+        text?: unknown;
+        summary?: unknown;
+        content?: unknown;
+      };
+      if (rec.type === "reasoning.encrypted") continue;
+      if (typeof rec.text === "string") reasoning_text += rec.text;
+      else if (typeof rec.summary === "string") reasoning_text += rec.summary;
+      else if (typeof rec.content === "string") reasoning_text += rec.content;
+    }
+  };
 
   const processFrame = (frame: string) => {
     const lines = frame.split("\n");
@@ -638,7 +724,11 @@ async function parseSseStream(
       if (typeof obj.provider === "string") provider = obj.provider;
       const choices = obj.choices as
         | Array<{
-            delta?: { content?: string };
+            delta?: {
+              content?: string;
+              reasoning?: string;
+              reasoning_content?: string;
+            };
             finish_reason?: string | null;
           }>
         | undefined;
@@ -649,6 +739,16 @@ async function parseSseStream(
         deliveredDeltas = true;
         onDelta(delta);
       }
+      const think =
+        choice?.delta?.reasoning ?? choice?.delta?.reasoning_content;
+      if (typeof think === "string" && think.length > 0) {
+        reasoning_text += think;
+      }
+      appendReasoningDetails(
+        (choice?.delta as { reasoning_details?: unknown } | undefined)
+          ?.reasoning_details,
+      );
+      appendReasoningDetails(obj.reasoning_details);
       if (choice?.finish_reason) {
         finish_reason = choice.finish_reason;
       }
@@ -657,11 +757,17 @@ async function parseSseStream(
           prompt_tokens?: number;
           completion_tokens?: number;
           cost?: number;
+          completion_tokens_details?: { reasoning_tokens?: number };
         };
+        const reasoningTokens = u.completion_tokens_details?.reasoning_tokens;
         usage = {
           prompt_tokens: u.prompt_tokens ?? usage.prompt_tokens,
           completion_tokens: u.completion_tokens ?? usage.completion_tokens,
           cost_usd: typeof u.cost === "number" ? u.cost : usage.cost_usd,
+          reasoning_tokens:
+            typeof reasoningTokens === "number"
+              ? reasoningTokens
+              : usage.reasoning_tokens,
         };
       }
     }
@@ -720,7 +826,7 @@ async function parseSseStream(
     }
   }
 
-  return { text, finish_reason, usage, provider, deliveredDeltas };
+  return { text, finish_reason, usage, provider, deliveredDeltas, reasoning_text };
 }
 
 async function streamChatOnce(
@@ -728,6 +834,7 @@ async function streamChatOnce(
   opts: {
     stripTemperature?: boolean;
     stripResponseFormat?: boolean;
+    reasoningStyle?: ReasoningStyle;
   } = {},
 ): Promise<StreamChatResult & { deliveredDeltas: boolean }> {
   const key = resolveApiKey(params.apiKey);
@@ -739,6 +846,8 @@ async function streamChatOnce(
   }
 
   const degraded: string[] = [];
+  const reasoningStyle =
+    opts.reasoningStyle ?? initialReasoningStyle(params);
 
   const body: Record<string, unknown> = {
     model: params.model,
@@ -752,6 +861,14 @@ async function streamChatOnce(
     body.temperature = params.temperature;
   } else {
     degraded.push("temperature");
+  }
+
+  applyReasoningToBody(body, params.maxTokens, reasoningStyle);
+  if (
+    (params.excludeReasoning || params.disableReasoning) &&
+    reasoningStyle === "omit"
+  ) {
+    degraded.push("reasoning");
   }
 
   if (params.responseFormat && !opts.stripResponseFormat) {
@@ -776,8 +893,9 @@ async function streamChatOnce(
     model: params.model,
     messages: params.messages,
     temperature: opts.stripTemperature ? undefined : params.temperature,
-    max_tokens: params.maxTokens,
+    max_tokens: body.max_tokens,
     response_format: body.response_format ?? undefined,
+    reasoning: body.reasoning ?? undefined,
   });
 
   const deadlineMs = params.deadlineMs ?? DEFAULT_DEADLINE_MS;
@@ -879,6 +997,7 @@ async function streamChatOnce(
       prompt_tokens,
       completion_tokens,
       cost_usd,
+      reasoning_tokens: parsed.usage.reasoning_tokens,
     },
     provider: parsed.provider,
     latency_ms: Date.now() - started,
@@ -886,22 +1005,27 @@ async function streamChatOnce(
     usage_estimated,
     degraded_params: degraded.length ? degraded : undefined,
     deliveredDeltas: parsed.deliveredDeltas,
+    reasoning_text: parsed.reasoning_text || undefined,
   };
 }
 
 function isParamRejection(err: OpenRouterError): {
   temperature?: boolean;
   response_format?: boolean;
+  reasoning?: boolean;
 } | null {
   if (err.kind !== "bad_request" || err.status !== 400) return null;
   const msg =
     err.message +
     " " +
     String((err as OpenRouterError & { bodyText?: string }).bodyText ?? "");
-  if (!/response_format|structured|temperature/i.test(msg)) return null;
+  if (!/response_format|structured|temperature|reasoning/i.test(msg)) {
+    return null;
+  }
   return {
     temperature: /temperature/i.test(msg),
     response_format: /response_format|structured/i.test(msg),
+    reasoning: /reasoning/i.test(msg) && !/response_format|structured/i.test(msg),
   };
 }
 
@@ -911,7 +1035,7 @@ export async function streamChat(
   let lastError: OpenRouterError | null = null;
   let stripTemperature = false;
   let stripResponseFormat = false;
-  let paramFallbackUsed = false;
+  let reasoningStyle = initialReasoningStyle(params);
 
   const maxAttempts = Math.max(1, params.maxRetries ?? 3);
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -919,6 +1043,7 @@ export async function streamChat(
       const result = await streamChatOnce(params, {
         stripTemperature,
         stripResponseFormat,
+        reasoningStyle,
       });
       return result;
     } catch (err) {
@@ -936,13 +1061,27 @@ export async function streamChat(
         throw orErr;
       }
 
-      // Parameter rejection: one immediate retry not counting against the 3
-      if (!paramFallbackUsed) {
-        const rejection = isParamRejection(orErr);
-        if (rejection) {
-          paramFallbackUsed = true;
-          if (rejection.temperature) stripTemperature = true;
-          if (rejection.response_format) stripResponseFormat = true;
+      // Parameter rejection: step down (temp / schema / reasoning) without
+      // consuming a retry slot. Reasoning can step twice: budget → exclude → omit.
+      const rejection = isParamRejection(orErr);
+      if (rejection) {
+        let changed = false;
+        if (rejection.temperature && !stripTemperature) {
+          stripTemperature = true;
+          changed = true;
+        }
+        if (rejection.response_format && !stripResponseFormat) {
+          stripResponseFormat = true;
+          changed = true;
+        }
+        if (rejection.reasoning) {
+          const next = stepDownReasoning(reasoningStyle);
+          if (next !== reasoningStyle) {
+            reasoningStyle = next;
+            changed = true;
+          }
+        }
+        if (changed) {
           if (
             rejection.response_format &&
             getCachedModel(params.model)?.supports_structured_outputs
@@ -951,7 +1090,7 @@ export async function streamChat(
               `[openrouter] model ${params.model} rejected response_format despite catalog support`,
             );
           }
-          attempt -= 1; // don't consume a retry slot
+          attempt -= 1;
           continue;
         }
       }

@@ -28,12 +28,20 @@ function sampleTasks() {
       task_body:
         "Write a function that reverses a Unicode string without splitting surrogate pairs. Explain the algorithm in two short paragraphs.",
       must_mention: ["grapheme"],
+      judge_criteria: [
+        "Handles surrogate pairs without splitting",
+        "Explains the reverse algorithm clearly",
+      ],
     },
     {
       category: "math" as const,
       task_body:
         "A cistern holds 120 liters and drains at 4 liters per minute. Compute minutes until empty and show the arithmetic.",
       must_mention: ["cistern-empty"],
+      judge_criteria: [
+        "Computes minutes until empty correctly",
+        "Shows the arithmetic steps",
+      ],
     },
   ];
 }
@@ -205,6 +213,43 @@ describe("custom packs", () => {
       { params: Promise.resolve({ id: pubBody.bundle.id }) },
     );
     expect(locked.status).toBe(403);
+  });
+
+  it("rejects publish when a must-mention leaks into the body", () => {
+    tdb = createTestDb();
+    const alice = user("Alice");
+    const draft = createCustomDraft({
+      authorId: alice.id,
+      name: "Leaky pack",
+      brief: "Harbor",
+      reference_notes: "",
+      generator_model_id: null,
+      tasks: [
+        {
+          category: "coding",
+          task_body:
+            "Please mention the secret phrase UNIQUEPHRASE in the body, and write at least two sentences so this prompt is not considered short.",
+          must_mention: ["UNIQUEPHRASE"],
+          judge_criteria: [
+            "Handles the required phrase as a hidden check",
+            "Explains the approach clearly",
+          ],
+        },
+      ],
+    });
+    expect(draft.status).toBe("draft");
+    try {
+      publishCustomDraft(draft.id, alice.id);
+      expect.unreachable("publish should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toMatch(/answer leak/i);
+      expect((err as { code?: string }).code).toBe("VALIDATION_ERROR");
+    }
+    const row = prepare(`SELECT status FROM bundles WHERE id = ?`).get(
+      draft.id,
+    ) as { status: string };
+    expect(row.status).toBe("draft");
   });
 
   it("A publishes, B can launch a run, B cannot edit", async () => {

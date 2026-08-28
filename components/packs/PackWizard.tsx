@@ -31,7 +31,11 @@ import {
   PACK_RULES,
   setPackRulesAck,
 } from "@/lib/client/packRules";
-import { reviewCustomPack, type PackReview } from "@/lib/bundles/pack-review";
+import {
+  publishBlockReason,
+  reviewCustomPack,
+  type PackReview,
+} from "@/lib/bundles/pack-review";
 import type { GeneratePhase } from "@/lib/schemas";
 import {
   briefFromSlots,
@@ -45,6 +49,7 @@ type PackTask = {
   category: Category;
   task_body: string;
   must_mention: string[];
+  judge_criteria?: string[];
 };
 
 type Step = "rules" | "brief" | "review";
@@ -68,7 +73,7 @@ function PackStepper({
   const currentIndex = PACK_STEPS.findIndex((s) => s.key === step);
   return (
     <div className="flex flex-col gap-3">
-      <ol className="flex flex-wrap items-center gap-1" aria-label="Pack creation steps">
+      <ol className="flex flex-wrap items-center gap-1" aria-label="Bundle creation steps">
         {PACK_STEPS.map((s, i) => {
           const reached = i <= maxIndex;
           const current = s.key === step;
@@ -272,6 +277,15 @@ export function PackWizard({
 
   const persist = async (publish: boolean) => {
     if (!signedIn || tasks.length === 0 || busy || generating) return;
+    if (publish) {
+      const reason = publishBlockReason(
+        quality ?? reviewCustomPack({ tasks }),
+      );
+      if (reason) {
+        setError(reason);
+        return;
+      }
+    }
     setBusy(true);
     setError(null);
     try {
@@ -319,10 +333,11 @@ export function PackWizard({
 
   const maxIndex = tasks.length > 0 ? 2 : acked ? 1 : 0;
   const generator = models.find((m) => m.id === modelId);
+  const blockReason = quality ? publishBlockReason(quality) : null;
 
   if (status === "loading") {
     return (
-      <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading pack wizard">
+      <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading bundle wizard">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-1.5 w-full max-w-md" />
         <Skeleton className="h-64 w-full" />
@@ -347,9 +362,9 @@ export function PackWizard({
           className="rounded-md border border-line-subtle bg-ink-900 p-5"
           data-testid="pack-rules"
         >
-          <h2 className="text-xl text-bright">Pack rules</h2>
+          <h2 className="text-xl text-bright">Bundle rules</h2>
           <p className="mt-1 text-sm text-dim">
-            The lab brief for custom packs — read once per tab. The server still
+            The lab brief for bundles — read once per tab. The server still
             enforces safety and schema.
           </p>
           <ol className="mt-4 flex flex-col">
@@ -393,8 +408,8 @@ export function PackWizard({
       {step !== "rules" && !signedIn && (
         <SignInGate
           testId="pack-needs-login"
-          title="Sign in to create a pack"
-          body="Creating and publishing packs needs an identity so authorship is credited. Viewing bundles stays open."
+          title="Sign in to create a bundle"
+          body="Creating and publishing bundles needs an identity so authorship is credited. Viewing bundles stays open."
         />
       )}
 
@@ -405,13 +420,13 @@ export function PackWizard({
             <p className="mt-1 text-sm text-dim">
               Up to 5 prompts. Each has its own type and brief — same type is
               fine when the ideas differ. Use General or Other if none of the
-              eight official types fit.
+              listed types fit.
             </p>
           </div>
 
           {/* Key is required by ServiceAccessGate before this step renders. */}
 
-          <Field label="Pack name" hint="Optional — defaults to the first prompt.">
+          <Field label="Bundle name" hint="Optional — defaults to the first prompt.">
               <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -634,14 +649,15 @@ export function PackWizard({
             <div>
               <h2 className="text-xl text-bright">Review</h2>
               <p className="mt-1 text-sm text-dim">
-                Edit bodies and must-mention phrases before publishing. A low
-                score does not block publish.
+                Edit bodies and must-mention phrases before publishing.
+                Publish is blocked on answer leak, missing criteria, or a
+                review score below 6.
               </p>
             </div>
             {quality && (
               <div className="flex flex-col items-end gap-1">
                 <span className="text-[11px] uppercase tracking-wide text-faint">
-                  Pack review
+                  Bundle review
                 </span>
                 <PackQualityBadge quality={quality} size="md" />
               </div>
@@ -652,8 +668,8 @@ export function PackWizard({
             <p className="text-sm text-dim" data-testid="pack-improve-notice">
               Copy of{" "}
               <span className="font-mono text-body">{seed.sourceSlug}</span>.
-              The published pack stays frozen — save or publish this as a new
-              pack.
+              The published bundle stays frozen — save or publish this as a new
+              bundle.
             </p>
           )}
 
@@ -671,7 +687,8 @@ export function PackWizard({
                   {task.title}
                 </h3>
                 <span className="font-mono text-xs tabular-nums text-faint">
-                  {task.must_mention.length} must-mention
+                  {task.must_mention.length} must-mention ·{" "}
+                  {(task.judge_criteria ?? []).length} criteria
                 </span>
               </div>
               <label className="mt-3 flex flex-col gap-1.5">
@@ -710,6 +727,29 @@ export function PackWizard({
                   }}
                 />
               </label>
+              <label className="mt-3 flex flex-col gap-1.5">
+                <span className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-dim">
+                  Judge criteria — one per line
+                  <Badge tone="neutral" title="Candidates never see these bullets">
+                    judge-only
+                  </Badge>
+                </span>
+                <Textarea
+                  value={(task.judge_criteria ?? []).join("\n")}
+                  onChange={(e) => {
+                    const next = [...tasks];
+                    next[idx] = {
+                      ...task,
+                      judge_criteria: e.target.value
+                        .split("\n")
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                        .slice(0, 10),
+                    };
+                    commitTasks(next);
+                  }}
+                />
+              </label>
             </section>
           ))}
 
@@ -725,21 +765,29 @@ export function PackWizard({
             <Button variant="ghost" onClick={() => setStep("brief")}>
               ← Edit brief
             </Button>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                variant="secondary"
-                loading={busy}
-                onClick={() => void persist(false)}
-              >
-                Save draft
-              </Button>
-              <Button
-                variant="primary"
-                loading={busy}
-                onClick={() => void persist(true)}
-              >
-                Publish
-              </Button>
+            <div className="flex flex-col items-end gap-2">
+              {blockReason && (
+                <p role="alert" className="max-w-md text-sm text-fail-400">
+                  {blockReason}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  loading={busy}
+                  onClick={() => void persist(false)}
+                >
+                  Save draft
+                </Button>
+                <Button
+                  variant="primary"
+                  loading={busy}
+                  disabled={Boolean(blockReason)}
+                  onClick={() => void persist(true)}
+                >
+                  Publish
+                </Button>
+              </div>
             </div>
           </div>
         </div>

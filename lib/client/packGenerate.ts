@@ -165,16 +165,22 @@ export async function streamPackGenerate(opts: {
   let complete: GeneratedPackResult | null = null;
   let chars = 0;
   let lastPhase: GeneratePhase | undefined;
+  let skippedJson = 0;
+  let skippedSchema = 0;
   try {
     for await (const frame of iterateSseFrames(res.body, opts.signal)) {
       let data: unknown;
       try {
         data = JSON.parse(frame.data);
       } catch {
+        skippedJson += 1;
         continue;
       }
       const checked = GenerateSseEventSchema.safeParse({ event: frame.event, data });
-      if (!checked.success) continue;
+      if (!checked.success) {
+        skippedSchema += 1;
+        continue;
+      }
       const evt = checked.data;
       switch (evt.event) {
         case "generate.status":
@@ -225,7 +231,7 @@ export async function streamPackGenerate(opts: {
       code: "STREAM_ENDED",
       message:
         chars > 0
-          ? `The generator stream closed after ${chars} characters, before a finished pack.`
+          ? `The generator stream closed after ${chars} characters, before a finished bundle.`
           : "The generator stream ended before a draft arrived.",
       hint: "The host or model cut the connection. Try a faster model or fewer prompts.",
       chars,
@@ -239,7 +245,7 @@ export async function streamPackGenerate(opts: {
     const where = first?.path.length ? first.path.join(".") : "root";
     throw new PackGenerateError({
       code: "VALIDATION_ERROR",
-      message: "Generator finished but the pack payload was invalid.",
+      message: "Generator finished but the bundle payload was invalid.",
       hint: first ? `${where}: ${first.message}` : undefined,
     });
   }

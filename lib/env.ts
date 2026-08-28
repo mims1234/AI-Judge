@@ -4,6 +4,8 @@ const EnvSchema = z.object({
   // Optional: required only for local/dev convenience. Production uses BYOK
   // (user-supplied key via request header / localStorage).
   OPENROUTER_API_KEY: z.string().optional().default(""),
+  /** Dedicated live-smoke key. Prefer this over OPENROUTER_API_KEY in scripts. */
+  OPENROUTER_SMOKE_KEY: z.string().optional().default(""),
   OPENROUTER_BASE_URL: z
     .string()
     .url("OPENROUTER_BASE_URL must be a valid URL")
@@ -50,6 +52,7 @@ export function getEnv(): Env {
   const rawMode = (process.env.AI_JUDGE_MODE ?? "").trim().toLowerCase();
   const result = EnvSchema.safeParse({
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ?? "",
+    OPENROUTER_SMOKE_KEY: process.env.OPENROUTER_SMOKE_KEY ?? "",
     OPENROUTER_BASE_URL: present(process.env.OPENROUTER_BASE_URL),
     DATABASE_PATH: present(process.env.DATABASE_PATH),
     AI_JUDGE_MODE: rawMode === "development" ? "dev" : rawMode === "production" ? "prod" : rawMode,
@@ -99,4 +102,16 @@ export function isExplicitDevMode(): boolean {
 /** Clear memoized env (tests only). */
 export function resetEnvCache(): void {
   cached = null;
+}
+
+/**
+ * Live-smoke OpenRouter key. Prefer OPENROUTER_SMOKE_KEY, then OPENROUTER_API_KEY.
+ * Never log or persist this value.
+ */
+export function getSmokeApiKey(): string | null {
+  const env = getEnv();
+  const smoke = env.OPENROUTER_SMOKE_KEY.trim();
+  if (smoke) return smoke;
+  const fallback = env.OPENROUTER_API_KEY.trim();
+  return fallback || null;
 }

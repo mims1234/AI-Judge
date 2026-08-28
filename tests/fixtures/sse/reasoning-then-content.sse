@@ -1,0 +1,15 @@
+data: {"choices":[{"index":0,"delta":{"reasoning":"The rubric says "}}]}
+
+data: {"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.text","text":"check evidence","index":0,"format":"unknown"}]}}]}
+
+data: {"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.summary","summary":" then score","index":0}]}}]}
+
+data: {"choices":[{"index":0,"delta":{"reasoning_details":[{"type":"reasoning.encrypted","data":"eyJshould-not-appear","index":1}]}}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"{\"answer\":"}}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"\"ok\"}"},"finish_reason":"stop"}]}
+
+data: {"choices":[{"index":0,"delta":{"content":""},"finish_reason":"stop"}],"usage":{"prompt_tokens":90,"completion_tokens":640,"completion_tokens_details":{"reasoning_tokens":580},"cost":0.001}}
+
+data: [DONE]

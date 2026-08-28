@@ -11,7 +11,7 @@ export const generatedPackJsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["category", "task_body", "must_mention"],
+        required: ["category", "task_body", "must_mention", "judge_criteria"],
         properties: {
           category: {
             type: "string",
@@ -28,10 +28,17 @@ export const generatedPackJsonSchema = {
               "other",
             ],
           },
-          task_body: { type: "string" },
+          task_body: { type: "string", minLength: 1, maxLength: 8000 },
           must_mention: {
             type: "array",
-            items: { type: "string" },
+            maxItems: 12,
+            items: { type: "string", minLength: 1, maxLength: 240 },
+          },
+          judge_criteria: {
+            type: "array",
+            minItems: 1,
+            maxItems: 10,
+            items: { type: "string", minLength: 1, maxLength: 400 },
           },
         },
       },

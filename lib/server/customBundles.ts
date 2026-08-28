@@ -6,9 +6,11 @@ import {
   computeCustomContentHash,
   CUSTOM_ANSWER_SCHEMA,
   CUSTOM_JSON_FOOTER,
-  CUSTOM_JUDGE_PROMPT,
+  buildBundleJudgePrompt,
   CUSTOM_TOKEN_LIMITS,
   CUSTOM_WRAPPER,
+  extractJudgeCriteria,
+  publishBlockReason,
   reviewCustomPack,
   slugifyName,
   uniqueSlug,
@@ -25,10 +27,20 @@ export type CustomTaskDraft = {
   category: Category;
   task_body: string;
   must_mention: string[];
+  judge_criteria?: string[];
 };
 
 function slugTaken(slug: string): boolean {
   return getBundleBySlugOrId(slug) != null;
+}
+
+function draftFromRow(t: TaskRow): CustomTaskDraft {
+  return {
+    category: t.category,
+    task_body: t.task_body,
+    must_mention: parseMustMention(t.must_mention_json),
+    judge_criteria: extractJudgeCriteria(t.judge_prompt),
+  };
 }
 
 function hashFromDraft(input: {
@@ -44,7 +56,7 @@ function hashFromDraft(input: {
     tasks: input.tasks.map((t) => ({
       category: t.category,
       task_body: applyCanonicalFooter(t.task_body),
-      judge_prompt: CUSTOM_JUDGE_PROMPT,
+      judge_prompt: buildBundleJudgePrompt(t.judge_criteria ?? []),
       output_schema: CUSTOM_ANSWER_SCHEMA,
       token_limit: CUSTOM_TOKEN_LIMITS[t.category],
       weight: 1,
@@ -55,12 +67,12 @@ function hashFromDraft(input: {
 
 export function assertMutableDraft(bundle: BundleRow, userId: string): void {
   if (bundle.origin !== "custom") {
-    throw Object.assign(new Error("Official packs cannot be edited."), {
+    throw Object.assign(new Error("Official bundles cannot be edited."), {
       code: "FORBIDDEN",
     });
   }
   if (bundle.status !== "draft") {
-    throw Object.assign(new Error("Published packs cannot be edited."), {
+    throw Object.assign(new Error("Published bundles cannot be edited."), {
       code: "FORBIDDEN",
     });
   }
@@ -80,7 +92,7 @@ export function createCustomDraft(input: {
   tasks: CustomTaskDraft[];
 }): BundleRow {
   if (input.tasks.length < 1 || input.tasks.length > 5) {
-    throw Object.assign(new Error("A custom pack needs 1–5 prompts."), {
+    throw Object.assign(new Error("A bundle needs 1–5 prompts."), {
       code: "VALIDATION_ERROR",
     });
   }
@@ -90,12 +102,13 @@ export function createCustomDraft(input: {
     input.reference_notes,
     input.tasks.map((t) => t.task_body),
     input.tasks.flatMap((t) => t.must_mention),
+    input.tasks.flatMap((t) => t.judge_criteria ?? []),
   );
   if (!safety.ok) {
     throw Object.assign(new Error(safety.message), { code: safety.code });
   }
 
-  const name = input.name.trim().slice(0, 80) || "Custom pack";
+  const name = input.name.trim().slice(0, 80) || "Custom bundle";
   const slug = uniqueSlug(slugifyName(name), slugTaken);
   const shortId = randomUUID().slice(0, 8);
   const version = `0.0.0-draft-${shortId}`;
@@ -131,7 +144,7 @@ export function createCustomDraft(input: {
       version,
       slug,
       content_hash: hash,
-      changelog: "Draft custom pack.",
+      changelog: "Draft bundle.",
       created_at: now,
       brief: input.brief,
       reference_notes: input.reference_notes,
@@ -157,7 +170,7 @@ export function createCustomDraft(input: {
         category: task.category,
         wrapper: CUSTOM_WRAPPER,
         task_body: task.task_body,
-        judge_prompt: CUSTOM_JUDGE_PROMPT,
+        judge_prompt: buildBundleJudgePrompt(task.judge_criteria ?? []),
         output_schema: JSON.stringify(CUSTOM_ANSWER_SCHEMA),
         token_limit: CUSTOM_TOKEN_LIMITS[task.category],
         weight: 1,
@@ -187,11 +200,7 @@ export function updateCustomDraft(
   }
   assertMutableDraft(bundle, userId);
 
-  const existingTasks = getBundleTasks(bundle.id).map((t) => ({
-    category: t.category,
-    task_body: t.task_body,
-    must_mention: parseMustMention(t.must_mention_json),
-  }));
+  const existingTasks = getBundleTasks(bundle.id).map(draftFromRow);
   const tasks = patch.tasks ?? existingTasks;
   const name = (patch.name ?? bundle.name).trim().slice(0, 80) || bundle.name;
   const brief = patch.brief ?? bundle.brief ?? "";
@@ -202,6 +211,7 @@ export function updateCustomDraft(
     notes,
     tasks.map((t) => t.task_body),
     tasks.flatMap((t) => t.must_mention),
+    tasks.flatMap((t) => t.judge_criteria ?? []),
   );
   if (!safety.ok) {
     throw Object.assign(new Error(safety.message), { code: safety.code });
@@ -214,7 +224,7 @@ export function updateCustomDraft(
     must_mention: t.must_mention.map((m) => m.trim()).filter(Boolean),
   }));
   if (normalized.length < 1 || normalized.length > 5) {
-    throw Object.assign(new Error("A custom pack needs 1–5 prompts."), {
+    throw Object.assign(new Error("A bundle needs 1–5 prompts."), {
       code: "VALIDATION_ERROR",
     });
   }
@@ -250,7 +260,7 @@ export function updateCustomDraft(
         category: task.category,
         wrapper: CUSTOM_WRAPPER,
         task_body: task.task_body,
-        judge_prompt: CUSTOM_JUDGE_PROMPT,
+        judge_prompt: buildBundleJudgePrompt(task.judge_criteria ?? []),
         output_schema: JSON.stringify(CUSTOM_ANSWER_SCHEMA),
         token_limit: CUSTOM_TOKEN_LIMITS[task.category],
         weight: 1,
@@ -271,7 +281,7 @@ export function publishCustomDraft(bundleId: string, userId: string): BundleRow 
 
   const tasks = getBundleTasks(bundle.id);
   if (tasks.length < 1) {
-    throw Object.assign(new Error("Cannot publish an empty pack."), {
+    throw Object.assign(new Error("Cannot publish an empty bundle."), {
       code: "VALIDATION_ERROR",
     });
   }
@@ -288,17 +298,21 @@ export function publishCustomDraft(bundleId: string, userId: string): BundleRow 
     bundle.reference_notes,
     tasks.map((t) => t.task_body),
     tasks.flatMap((t) => parseMustMention(t.must_mention_json)),
+    tasks.flatMap((t) => extractJudgeCriteria(t.judge_prompt)),
   );
   if (!safety.ok) {
     throw Object.assign(new Error(safety.message), { code: safety.code });
   }
 
   const normalized = tasks.map((t) => ({
-    category: t.category,
+    ...draftFromRow(t),
     task_body: applyCanonicalFooter(t.task_body),
-    must_mention: parseMustMention(t.must_mention_json),
   }));
   const quality = reviewCustomPack({ tasks: normalized });
+  const blocked = publishBlockReason(quality);
+  if (blocked) {
+    throw Object.assign(new Error(blocked), { code: "VALIDATION_ERROR" });
+  }
   let name = bundle.name;
   const version = "1.0.0";
   const nameTaken = prepare(
@@ -330,7 +344,7 @@ export function publishCustomDraft(bundleId: string, userId: string): BundleRow 
       version,
       hash,
       JSON.stringify(quality),
-      "Published custom pack.",
+      "Published bundle.",
       bundle.id,
     );
   })();
@@ -361,11 +375,7 @@ export function draftQuality(bundle: BundleRow): PackReview | null {
 }
 
 export function tasksToDrafts(tasks: TaskRow[]): CustomTaskDraft[] {
-  return tasks.map((t) => ({
-    category: t.category,
-    task_body: t.task_body,
-    must_mention: parseMustMention(t.must_mention_json),
-  }));
+  return tasks.map(draftFromRow);
 }
 
 function improvedName(name: string): string {

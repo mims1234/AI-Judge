@@ -11,12 +11,14 @@ describe("packReviewSummary", () => {
           task_body:
             "Write a hard self-contained coding problem that includes unicode edge cases and is long enough to pass the length check.",
           must_mention: ["unicode"],
+          judge_criteria: ["Handles unicode edge cases"],
         },
         {
           category: "math",
           task_body:
             "Write a hard contest algebra problem that includes number theory and is long enough to pass the length check.",
           must_mention: ["number theory"],
+          judge_criteria: ["Uses number theory correctly"],
         },
       ],
     });

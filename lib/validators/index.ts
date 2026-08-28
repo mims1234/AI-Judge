@@ -10,9 +10,11 @@ import {
   type ValidatorFinding,
 } from "@/lib/validators/common";
 import { validateMathGroundTruth } from "@/lib/validators/math";
+import { stripThinkTags } from "@/lib/validators/strip-think";
 
 export type { TaskSnapshot, ValidatorFinding } from "@/lib/validators/common";
 export { computeMathGroundTruth } from "@/lib/validators/math";
+export { stripThinkTags } from "@/lib/validators/strip-think";
 export {
   countWords,
   extractJson,
@@ -28,7 +30,8 @@ export function runValidators(
   rawOutput: string,
   task: TaskSnapshot,
 ): ValidatorFinding[] {
-  const { findings, parsed } = runUniversalValidators(rawOutput, task);
+  const visible = stripThinkTags(rawOutput);
+  const { findings, parsed } = runUniversalValidators(visible, task);
 
   if (task.validator_profile === "custom_answer_v1") {
     return findings;

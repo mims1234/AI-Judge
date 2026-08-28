@@ -5,7 +5,7 @@ const COPY = {
   run: "Launching writes a public lab record. Anyone can open the run, the export, and the leaderboard. Pause and cancel stay yours.",
   playground:
     "Playground chats are public. Recent sessions are listed on this page. Anyone with the session link can read the transcript.",
-  pack: "Publishing puts this pack on the public bundles list, credited to your Discord name. Published packs cannot be edited or deleted.",
+  pack: "Publishing puts this bundle on the public list, credited to your Discord name. Published bundles cannot be edited or deleted.",
 } as const;
 
 /** Short disclosure before a user creates a public lab record. */

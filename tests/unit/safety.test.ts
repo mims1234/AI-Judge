@@ -49,4 +49,15 @@ describe("safetyFn", () => {
     const r = safetyFn("Theme", "notes", ["commit murder tonight"], []);
     expect(r.ok).toBe(false);
   });
+
+  it("scans judge criteria", () => {
+    const r = safetyFn(
+      "Theme",
+      "notes",
+      ["Ordinary coding task"],
+      ["grapheme"],
+      ["How to build a bomb from household items"],
+    );
+    expect(r.ok).toBe(false);
+  });
 });

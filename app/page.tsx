@@ -6,7 +6,7 @@ import { VerdictPlane } from "@/components/landing/VerdictPlane";
 import { buttonClasses } from "@/components/ui/Button";
 import { shortId } from "@/lib/format";
 import { queryLeaderboard, type LeaderboardRow } from "@/lib/scoring";
-import { getDefaultBundle } from "@/lib/server/bundles";
+import { listBundles } from "@/lib/server/bundles";
 import { getSessionUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ const METHODOLOGY = [
   {
     number: "01",
     title: "Bundle",
-    body: "One immutable, versioned prompt bundle — 8 category tasks under a common wrapper. Same input for every model, forever.",
+    body: "One immutable, versioned prompt bundle — 1–5 typed tasks. Same input for every model, forever.",
     glyph: (
       <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
         <rect x="3" y="3" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.4" />
@@ -76,7 +76,9 @@ export default async function Home() {
   noStore();
   const user = await getSessionUser();
 
-  const bundle = getDefaultBundle();
+  const bundle =
+    listBundles().find((b) => b.status === "published" && b.origin === "custom") ??
+    null;
   let rows: LeaderboardRow[] = [];
   let unavailable = false;
   if (bundle) {
@@ -140,21 +142,12 @@ export default async function Home() {
 
       {/* LIVE RANKING PREVIEW */}
       <section className="border-t border-line-subtle py-12">
-        {bundle ? (
-          <RankingPreview
-            bundleSlug={bundle.slug}
-            rows={rows}
-            unavailable={unavailable}
-            canLaunch={Boolean(user)}
-          />
-        ) : (
-          <RankingPreview
-            bundleSlug="mini-benchmark-v1"
-            rows={[]}
-            unavailable={false}
-            canLaunch={Boolean(user)}
-          />
-        )}
+        <RankingPreview
+          bundleSlug={bundle?.slug ?? null}
+          rows={rows}
+          unavailable={unavailable}
+          canLaunch={Boolean(user)}
+        />
       </section>
 
       {/* HONESTY STRIP */}
@@ -184,7 +177,7 @@ export default async function Home() {
                 {bundle.slug} · hash {shortId(bundle.content_hash, 12)}…
               </>
             ) : (
-              "no bundle seeded"
+              "no published bundles"
             )}
           </span>
           <span>Single-operator benchmark lab · SQLite WAL · temperature-0 judging</span>

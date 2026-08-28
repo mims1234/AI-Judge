@@ -526,7 +526,7 @@ export const CHAT_LIMITS = {
   MAX_JUDGES: 5,
   ASSISTANT_MAX_TOKENS: 8192,
   CLASSIFY_MAX_TOKENS: 512,
-  JUDGE_MAX_TOKENS: 2048,
+  JUDGE_MAX_TOKENS: 4096,
 } as const;
 
 export const ChatSessionStatusSchema = z.enum([
@@ -1011,6 +1011,7 @@ export const CustomTaskDraftSchema = z.object({
   category: CategorySchema,
   task_body: z.string().min(1).max(8_000),
   must_mention: z.array(z.string().min(1).max(240)).max(12).default([]),
+  judge_criteria: z.array(z.string().min(1).max(400)).max(10).default([]),
 });
 
 const customTasks = z.array(CustomTaskDraftSchema).min(1).max(5);
@@ -1058,6 +1059,7 @@ export type GeneratePhase = (typeof GENERATE_PHASES)[number];
 export const PackReviewFlagSchema = z.enum([
   "too_short",
   "missing_must_mention",
+  "missing_judge_criteria",
   "answer_leak",
   "missing_json_footer",
   "candidate_id_leak",

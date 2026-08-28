@@ -146,7 +146,7 @@ export function describeGenerateError(
         message: cause
           ? `OpenRouter rejected the generate call${err.status ? ` (HTTP ${err.status})` : ""}: ${cause}`
           : "OpenRouter rejected the generate call.",
-        hint: "This model may not support structured pack output. Try another generator.",
+        hint: "This model may not support structured bundle output. Try another generator.",
       };
     }
 

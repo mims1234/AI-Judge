@@ -15,7 +15,7 @@ import { getAppSettings, getKeyStatusInfo } from "@/lib/server/appSettings";
 import {
   attachBundleMeta,
   getBundleTasks,
-  listBundles,
+  listPublishedUserBundles,
   sortBundlesForPicker,
 } from "@/lib/server/bundles";
 
@@ -69,7 +69,7 @@ export default async function RunPage({ searchParams }: { searchParams: SearchPa
   const isDemo = demo === "1";
 
   const published = sortBundlesForPicker(
-    listBundles().filter((b) => b.status === "published"),
+    listPublishedUserBundles(),
   );
   const bundles = attachBundleMeta(published);
 

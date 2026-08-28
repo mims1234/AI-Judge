@@ -126,7 +126,7 @@ export function TaskCard({
             <div className="mt-4">
               <p className="mb-2 text-xs text-dim">
                 Judge-only phrases. Candidates never see this list — if a
-                phrase also appears in the prompt, the pack review flags an
+                phrase also appears in the prompt, the bundle review flags an
                 answer leak.
               </p>
               <ul className="flex flex-col gap-1.5">

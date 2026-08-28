@@ -94,7 +94,14 @@ describe("canonical custom hash", () => {
 describe("reviewCustomPack", () => {
   it("scores 10 −2 short −1 missing mention", () => {
     const review = reviewCustomPack({
-      tasks: [{ category: "math", task_body: "too short", must_mention: [] }],
+      tasks: [
+        {
+          category: "math",
+          task_body: "too short",
+          must_mention: [],
+          judge_criteria: ["Gets the numeric answer"],
+        },
+      ],
     });
     expect(review.flags.map((f) => f.flag)).toEqual(
       expect.arrayContaining(["too_short", "missing_must_mention"]),
@@ -110,6 +117,7 @@ describe("reviewCustomPack", () => {
           task_body:
             "Please mention the secret phrase UNIQUEPHRASE in the body, and write at least two sentences so this prompt is not considered short.",
           must_mention: ["UNIQUEPHRASE"],
+          judge_criteria: ["Mentions the required phrase"],
         },
       ],
     });

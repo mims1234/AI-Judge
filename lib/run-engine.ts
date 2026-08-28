@@ -10,6 +10,11 @@ import {
 } from "@/lib/openrouter";
 import { hash32, seededShuffle } from "@/lib/prng";
 import {
+  JUDGE_MAX_TOKENS,
+  PLATFORM_TRUNCATION_NOTE,
+  parseJudgeOutput,
+} from "@/lib/judge-parse";
+import {
   CATEGORY_ORDER,
   EPHEMERAL_SSE_EVENTS,
   JudgeOutputSchema,
@@ -27,6 +32,7 @@ import {
 import {
   isCountableFinding,
   runValidators,
+  stripThinkTags,
   type TaskSnapshot,
 } from "@/lib/validators";
 
@@ -990,43 +996,73 @@ class RunEngineImpl implements RunEngine {
     };
 
     try {
-      const result = await streamChat({
-        model: candidateModelId,
-        messages,
-        temperature: 0.7,
-        maxTokens: taskMeta.token_limit,
-        responseFormat:
-          taskMeta.validator_profile === "custom_answer_v1"
-            ? {
-                name: "custom_answer",
-                schema: {
-                  type: "object",
-                  properties: { answer: { type: "string" } },
-                  required: ["answer"],
-                  additionalProperties: false,
-                },
-              }
-            : undefined,
-        signal: ctrl.abortController.signal,
-        deadlineMs: getCallDeadlineMs(),
-        maxRetries: getMaxRetries(),
-        apiKey: this.resolveRunKey(runId),
-        onDelta: (d) => {
-          pendingDelta += d;
-          tokenEst = Math.ceil((tokenEst * 4 + d.length) / 4);
-          flushDelta();
-        },
-        onRetry: (attempt, delayMs, reason) => {
-          this.emitEvent(runId, "notice", {
-            runId,
-            scope: "task",
-            code: "RETRY_SCHEDULED",
-            message: `Retry ${attempt} scheduled (${reason})`,
-            taskResultId,
-            details: { attempt, delayMs, reason },
-          });
-        },
-      });
+      const callCandidate = (opts: {
+        excludeReasoning?: boolean;
+        disableReasoning?: boolean;
+      }) =>
+        streamChat({
+          model: candidateModelId,
+          messages,
+          temperature: 0.7,
+          maxTokens: taskMeta.token_limit,
+          excludeReasoning: opts.excludeReasoning,
+          disableReasoning: opts.disableReasoning,
+          responseFormat:
+            taskMeta.validator_profile === "custom_answer_v1"
+              ? {
+                  name: "custom_answer",
+                  schema: {
+                    type: "object",
+                    properties: { answer: { type: "string" } },
+                    required: ["answer"],
+                    additionalProperties: false,
+                  },
+                }
+              : undefined,
+          signal: ctrl.abortController.signal,
+          deadlineMs: getCallDeadlineMs(),
+          maxRetries: getMaxRetries(),
+          apiKey: this.resolveRunKey(runId),
+          onDelta: (d) => {
+            pendingDelta += d;
+            tokenEst = Math.ceil((tokenEst * 4 + d.length) / 4);
+            flushDelta();
+          },
+          onRetry: (attempt, delayMs, reason) => {
+            this.emitEvent(runId, "notice", {
+              runId,
+              scope: "task",
+              code: "RETRY_SCHEDULED",
+              message: `Retry ${attempt} scheduled (${reason})`,
+              taskResultId,
+              details: { attempt, delayMs, reason },
+            });
+          },
+        });
+
+      let result = await callCandidate({ excludeReasoning: true });
+      const emptyBilled = (r: typeof result) =>
+        !r.text.trim() &&
+        (r.usage.completion_tokens > 50 ||
+          (r.usage.reasoning_tokens ?? 0) > 0);
+      if (emptyBilled(result) && !ctrl.cancelRequested) {
+        this.emitEvent(runId, "notice", {
+          runId,
+          scope: "task",
+          code: "RETRY_SCHEDULED",
+          message:
+            "Empty answer after billed tokens — retrying with thinking turned off.",
+          taskResultId,
+          details: { reason: "empty_reasoning" },
+        });
+        result = await callCandidate({ disableReasoning: true });
+      }
+      if (emptyBilled(result)) {
+        throw new OpenRouterError(
+          "upstream",
+          "Model billed tokens but returned no visible answer (reasoning likely ate the budget).",
+        );
+      }
       flushDelta(true);
 
       // Idempotency map
@@ -1138,7 +1174,7 @@ class RunEngineImpl implements RunEngine {
     );
     const findings = runValidators(
       taskMeta.category,
-      row.raw_output ?? "",
+      stripThinkTags(row.raw_output ?? ""),
       taskMeta,
     );
 
@@ -1261,11 +1297,43 @@ class RunEngineImpl implements RunEngine {
   ): Promise<void> {
     const ctrl = this.ensureControl(runId);
     const row = prepare(
-      `SELECT raw_output, candidate_model_id FROM task_results WHERE id = ?`,
+      `SELECT raw_output, candidate_model_id, finish_reason, completion_tokens
+       FROM task_results WHERE id = ?`,
     ).get(taskResultId) as {
       raw_output: string;
       candidate_model_id: string;
+      finish_reason: string | null;
+      completion_tokens: number | null;
     };
+
+    if (!(row.raw_output ?? "").trim()) {
+      prepare(
+        `UPDATE task_results SET status = 'error', error = ?, finished_at = ?
+         WHERE id = ?`,
+      ).run(
+        JSON.stringify({
+          kind: "infra_failure",
+          message:
+            "No visible candidate answer (empty output after the model call).",
+        }),
+        Date.now(),
+        taskResultId,
+      );
+      this.emitTaskStatus(runId, taskResultId, "error", {
+        kind: "infra_failure",
+        message: "No visible candidate answer.",
+      });
+      this.emitEvent(runId, "notice", {
+        runId,
+        scope: "task",
+        code: "INFRA_PENALTY",
+        message:
+          "Task scored 0 (model emitted no visible answer) — retry to replace the penalty.",
+        taskResultId,
+        details: { kind: "infra_failure", reason: "empty_output" },
+      });
+      return;
+    }
 
     const findings = prepare(
       `SELECT validator, passed, expected_json, actual_json, details
@@ -1371,8 +1439,11 @@ class RunEngineImpl implements RunEngine {
         const userParts = [
           `ORIGINAL TASK:\n${taskMeta.wrapper}\n\n${taskMeta.task_body}`,
           validatorBlock,
-          `CANDIDATE ANSWER:\n${row.raw_output}`,
+          `CANDIDATE ANSWER:\n${stripThinkTags(row.raw_output ?? "")}`,
         ];
+        if (row.finish_reason === "length") {
+          userParts.push(PLATFORM_TRUNCATION_NOTE);
+        }
         if (taskMeta.must_mention && taskMeta.must_mention.length > 0) {
           userParts.push(
             `MUST MENTION / EXPECTED NOTES (judge-only; the candidate did not see this):\n${taskMeta.must_mention.map((m) => `- ${m}`).join("\n")}`,
@@ -1424,7 +1495,8 @@ class RunEngineImpl implements RunEngine {
             model: jid,
             messages,
             temperature: 0,
-            maxTokens: 1536,
+            maxTokens: JUDGE_MAX_TOKENS,
+            excludeReasoning: true,
             responseFormat: {
               name: "judge_output",
               schema: judgeOutputJsonSchema,
@@ -1451,46 +1523,25 @@ class RunEngineImpl implements RunEngine {
           });
           flush(true);
 
-          const cleaned = result.text
-            .replace(/^```(?:json)?\s*/i, "")
-            .replace(/\s*```$/i, "")
-            .trim();
-          let parsedJson: unknown;
-          try {
-            parsedJson = JSON.parse(cleaned);
-          } catch (e) {
-            return {
-              ok: false,
-              parsed: null,
-              result,
-              parse_status: "invalid",
-              evidence: e instanceof Error ? e.message : "JSON parse failed",
-            };
-          }
-          const safe = JudgeOutputSchema.safeParse(parsedJson);
-          if (!safe.success) {
-            return {
-              ok: false,
-              parsed: null,
-              result,
-              parse_status: "invalid",
-              evidence: JSON.stringify(safe.error.issues),
-            };
-          }
+          const parsed = parseJudgeOutput(result.text, {
+            repaired: Boolean(repairErrors),
+          });
           return {
-            ok: true,
-            parsed: safe.data,
+            ok: parsed.ok,
+            parsed: parsed.parsed,
             result,
-            parse_status: repairErrors ? "repaired" : "first_try",
-            evidence: null,
+            parse_status: parsed.parse_status,
+            evidence: parsed.evidence,
           };
         } catch (err) {
+          const kind =
+            err instanceof OpenRouterError ? err.kind : "judge_call";
           return {
             ok: false,
             parsed: null,
             result: null,
             parse_status: "invalid",
-            evidence: err instanceof Error ? err.message : "judge call failed",
+            evidence: `infra: ${kind}: ${err instanceof Error ? err.message : "judge call failed"}`,
           };
         }
       };

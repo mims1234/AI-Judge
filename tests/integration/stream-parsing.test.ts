@@ -145,6 +145,58 @@ describe("OpenRouter SSE stream parsing (plans/11 §2.1)", () => {
     ).rejects.toBeInstanceOf(OpenRouterError);
   });
 
+  it("keeps reasoning off the content buffer and records reasoning_tokens", async () => {
+    await boot("sse/reasoning-then-content.sse");
+    mock!.setDefaultChat({
+      kind: "sse",
+      fixtureRelPath: "sse/reasoning-then-content.sse",
+      chunkBytes: 40,
+    });
+    const result = await streamChat({
+      model: "mock/cand-a",
+      messages: [{ role: "user", content: "score" }],
+      temperature: 0,
+      maxTokens: 64,
+      signal: AbortSignal.timeout(15_000),
+      onDelta: () => {},
+      deadlineMs: 15_000,
+    });
+    expect(result.text).toBe('{"answer":"ok"}');
+    expect(result.text.includes("rubric")).toBe(false);
+    expect(result.text.includes("eyJ")).toBe(false);
+    expect(result.reasoning_text).toContain("The rubric says");
+    expect(result.reasoning_text).toContain("check evidence");
+    expect(result.reasoning_text).toContain("then score");
+    expect(result.reasoning_text ?? "").not.toContain("eyJshould-not-appear");
+    expect(result.usage.reasoning_tokens).toBe(580);
+    expect(result.usage.completion_tokens).toBe(640);
+  });
+
+  it("excludeReasoning reserves a thinking budget under the shared cap", async () => {
+    await boot();
+    await streamChat({
+      model: "mock/cand-a",
+      messages: [{ role: "user", content: "go" }],
+      temperature: 0,
+      maxTokens: 1024,
+      excludeReasoning: true,
+      signal: AbortSignal.timeout(15_000),
+      onDelta: () => {},
+      deadlineMs: 15_000,
+    });
+    const chat = mock!.requests.find((r) => r.url.includes("chat/completions"));
+    expect(chat).toBeTruthy();
+    const body = JSON.parse(chat!.body) as {
+      max_tokens: number;
+      reasoning: { exclude?: boolean; max_tokens?: number; effort?: string };
+    };
+    expect(body.reasoning.exclude).toBe(true);
+    expect(body.reasoning.max_tokens).toBe(1024);
+    expect(body.reasoning.effort).toBeUndefined();
+    expect(body.max_tokens).toBe(2048);
+    expect(body.max_tokens).toBeGreaterThan(body.reasoning.max_tokens!);
+  });
+
   it("socket drop is retryable infrastructure failure", async () => {
     await boot();
     mock!.setDefaultChat({ kind: "drop" });

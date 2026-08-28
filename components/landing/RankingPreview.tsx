@@ -7,7 +7,7 @@ import { formatScore, formatRelativeTime } from "@/lib/format";
 import type { LeaderboardRow } from "@/lib/scoring";
 
 export type RankingPreviewProps = {
-  bundleSlug: string;
+  bundleSlug: string | null;
   rows: LeaderboardRow[]; // top 5, already sliced
   unavailable?: boolean;
   canLaunch?: boolean;
@@ -27,7 +27,9 @@ export function RankingPreview({
           <h2 id="standings-heading" className="text-xl text-bright">
             Current standings
           </h2>
-          <p className="mt-0.5 font-mono text-xs text-dim">{bundleSlug}</p>
+          {bundleSlug ? (
+            <p className="mt-0.5 font-mono text-xs text-dim">{bundleSlug}</p>
+          ) : null}
         </div>
         <Link
           href="/leaderboard"
@@ -41,6 +43,22 @@ export function RankingPreview({
         <EmptyState
           title="Standings unavailable"
           body="The leaderboard could not be read just now. It usually means the database is still warming up."
+        />
+      ) : !bundleSlug ? (
+        <EmptyState
+          title="No published bundles yet."
+          body="Create a bundle to start ranking models."
+          action={
+            canLaunch ? (
+              <Link href="/bundles/new" className={buttonClasses({ variant: "primary" })}>
+                Create bundle
+              </Link>
+            ) : (
+              <Link href="/bundles" className={buttonClasses({ variant: "secondary" })}>
+                View bundles
+              </Link>
+            )
+          }
         />
       ) : rows.length === 0 ? (
         <EmptyState
@@ -61,7 +79,7 @@ export function RankingPreview({
       ) : (
         <div className="overflow-hidden rounded-md border border-line-subtle bg-ink-900">
           <table className="min-w-full border-collapse">
-            <caption className="sr-only">Top models on {bundleSlug}</caption>
+            <caption className="sr-only">Top models on {bundleSlug ?? "this board"}</caption>
             <thead>
               <tr className="border-b border-line-strong">
                 <th scope="col" className="px-3 py-2 text-left text-xs font-normal uppercase tracking-wide text-dim">

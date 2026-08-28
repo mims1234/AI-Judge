@@ -37,12 +37,11 @@ export function StepBundle({
   onBundle: (id: string) => void;
   onCategories: (cats: Category[]) => void;
 }) {
-  const selected = bundles.find((b) => b.id === bundleId) ?? null;
+  const catalog = bundles.filter((b) => b.origin !== "official");
+  const selected = catalog.find((b) => b.id === bundleId) ?? null;
   const available = selected?.availableCategories?.length
     ? selected.availableCategories
     : CATEGORY_ORDER;
-  const official = bundles.filter((b) => b.origin === "official");
-  const custom = bundles.filter((b) => b.origin === "custom");
   const partial =
     selected != null && categories.length < available.length;
 
@@ -107,42 +106,25 @@ export function StepBundle({
       <div>
         <h2 className="text-xl text-bright">Bundle</h2>
         <p className="mt-1 text-sm text-dim">
-          Official instruments are immutable. Custom packs use the types their
-          author published.
+          Published bundles are immutable. Categories are the types the author
+          published.
         </p>
       </div>
 
-      <div role="radiogroup" aria-label="Published bundles" className="flex flex-col gap-6">
-        {bundles.length === 0 ? (
+      <div role="radiogroup" aria-label="Published bundles" className="flex flex-col gap-3">
+        {catalog.length === 0 ? (
           <p className="text-sm text-fail-400">
-            No published bundles. Seed the database, then return here.
+            No published bundles. Create one first.
           </p>
         ) : (
-          <>
-            {official.length > 0 && (
-              <section>
-                <h3 className="mb-2 text-xs uppercase tracking-wide text-dim">
-                  Official
-                </h3>
-                <div className="flex flex-col gap-3">{official.map(renderCard)}</div>
-              </section>
-            )}
-            {custom.length > 0 && (
-              <section>
-                <h3 className="mb-2 text-xs uppercase tracking-wide text-dim">
-                  Custom packs
-                </h3>
-                <div className="flex flex-col gap-3">{custom.map(renderCard)}</div>
-              </section>
-            )}
-          </>
+          catalog.map(renderCard)
         )}
       </div>
 
       <div>
         <h3 className="text-sm text-body">Categories</h3>
         <p className="mt-0.5 text-xs text-dim">
-          Chips are the types on this pack. Toggle to exclude.
+          Chips are the types on this bundle. Toggle to exclude.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           {available.map((cat) => {
@@ -167,7 +149,7 @@ export function StepBundle({
         </div>
         {partial && (
           <p className="mt-3 text-sm text-dim">
-            A complete-run badge requires every type in this pack. Leaderboard
+            A complete-run badge requires every type in this bundle. Leaderboard
             still includes scored runs that are not cancelled.
           </p>
         )}

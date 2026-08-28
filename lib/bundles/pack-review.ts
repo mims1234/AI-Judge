@@ -7,6 +7,7 @@ export const CUSTOM_JSON_FOOTER =
 export type PackReviewFlag =
   | "too_short"
   | "missing_must_mention"
+  | "missing_judge_criteria"
   | "answer_leak"
   | "missing_json_footer"
   | "candidate_id_leak";
@@ -43,7 +44,12 @@ export function containsModelIds(text: string, ids: string[]): boolean {
 }
 
 export function reviewCustomPack(input: {
-  tasks: Array<{ category: Category; task_body: string; must_mention: string[] }>;
+  tasks: Array<{
+    category: Category;
+    task_body: string;
+    must_mention: string[];
+    judge_criteria?: string[];
+  }>;
   candidateIds?: string[];
 }): PackReview {
   const flags: PackReview["flags"] = [];
@@ -55,6 +61,9 @@ export function reviewCustomPack(input: {
     }
     if (task.must_mention.length === 0) {
       flags.push({ category: task.category, flag: "missing_must_mention" });
+    }
+    if ((task.judge_criteria ?? []).filter((c) => c.trim()).length === 0) {
+      flags.push({ category: task.category, flag: "missing_judge_criteria" });
     }
     const bodyNorm = normalizeNeedle(body);
     for (const mention of task.must_mention) {
@@ -80,9 +89,23 @@ export function reviewCustomPack(input: {
     if (f.flag === "too_short") score -= 2;
     else if (f.flag === "answer_leak") score -= 3;
     else if (f.flag === "missing_must_mention") score -= 1;
+    else if (f.flag === "missing_judge_criteria") score -= 2;
     else if (f.flag === "candidate_id_leak") score -= 2;
   }
   if (score < 0) score = 0;
 
   return { score, flags, reviewed_at: Date.now() };
+}
+
+export function publishBlockReason(quality: PackReview): string | null {
+  if (quality.flags.some((f) => f.flag === "answer_leak")) {
+    return "Cannot publish: a must-mention phrase appears in the task body (answer leak).";
+  }
+  if (quality.flags.some((f) => f.flag === "missing_judge_criteria")) {
+    return "Cannot publish: every slot needs judge criteria.";
+  }
+  if (quality.score < 6) {
+    return `Cannot publish: review score ${quality.score.toFixed(1)} / 10 is below 6.`;
+  }
+  return null;
 }

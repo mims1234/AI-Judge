@@ -5,16 +5,19 @@ import {
 } from "@/lib/bundles/custom";
 import { safetyFn } from "@/lib/bundles/safety";
 import { briefFromSlots } from "@/lib/bundles/task-labels";
+import { tryRepairTruncatedJson } from "@/lib/judge-parse";
 import {
   GeneratedPackSchema,
   type Category,
   type PackSlotInput,
 } from "@/lib/schemas";
+import { extractJson } from "@/lib/validators/common";
 
 export type FinalizedPackTask = {
   category: Category;
   task_body: string;
   must_mention: string[];
+  judge_criteria: string[];
 };
 
 export type FinalizeGeneratedOk = {
@@ -31,15 +34,19 @@ export type FinalizeGeneratedErr = {
   hint?: string;
 };
 
+function parseGeneratedJson(rawText: string): unknown | null {
+  const extracted = extractJson(rawText);
+  if (extracted.ok) return extracted.value;
+  return tryRepairTruncatedJson(rawText);
+}
+
 export function finalizeGeneratedPack(input: {
   rawText: string;
   slots: PackSlotInput[];
   notes: string;
 }): FinalizeGeneratedOk | FinalizeGeneratedErr {
-  let parsedPack: unknown;
-  try {
-    parsedPack = JSON.parse(input.rawText);
-  } catch {
+  const parsedPack = parseGeneratedJson(input.rawText);
+  if (parsedPack == null) {
     return {
       ok: false,
       code: "VALIDATION_ERROR",
@@ -55,7 +62,7 @@ export function finalizeGeneratedPack(input: {
     return {
       ok: false,
       code: "VALIDATION_ERROR",
-      message: "Generator output did not match the pack schema.",
+      message: "Generator output did not match the bundle schema.",
       hint: first ? `${where}: ${first.message}` : "Try another generator.",
     };
   }
@@ -76,6 +83,7 @@ export function finalizeGeneratedPack(input: {
       category: slot.category,
       task_body: applyCanonicalFooter(t.task_body),
       must_mention: t.must_mention,
+      judge_criteria: t.judge_criteria,
     };
   });
 
@@ -83,7 +91,10 @@ export function finalizeGeneratedPack(input: {
     brief,
     input.notes,
     tasks.map((t) => t.task_body),
-    tasks.flatMap((t) => t.must_mention),
+    [
+      ...tasks.flatMap((t) => t.must_mention),
+      ...tasks.flatMap((t) => t.judge_criteria),
+    ],
   );
   if (!after.ok) {
     return {

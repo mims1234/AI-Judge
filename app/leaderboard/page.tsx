@@ -20,7 +20,11 @@ import {
   type Category,
 } from "@/lib/schemas";
 import { getLeaderboardData } from "@/lib/server/analytics";
-import { getDefaultBundle, listBundles, withBundleMeta } from "@/lib/server/bundles";
+import {
+  getDefaultBundle,
+  listPublishedUserBundles,
+  withBundleMeta,
+} from "@/lib/server/bundles";
 import { getSessionUser } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
@@ -54,7 +58,35 @@ export default async function LeaderboardPage({
   const isDemo = sp.demo === "1";
   const category = parseCategory(sp.category);
 
-  const bundles = listBundles().filter((b) => b.status === "published");
+  const bundles = listPublishedUserBundles();
+
+  if (!isDemo && bundles.length === 0) {
+    return (
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-6 py-10 md:px-10">
+        <header className="flex flex-col gap-1">
+          <h1 className="font-display text-2xl uppercase tracking-[0.08em] text-bright">
+            Leaderboard
+          </h1>
+        </header>
+        <EmptyState
+          title="No published bundles yet"
+          body="Create a bundle to start ranking models."
+          action={
+            user ? (
+              <Link href="/bundles/new" className={buttonClasses({ variant: "primary" })}>
+                Create a bundle
+              </Link>
+            ) : (
+              <Link href="/bundles" className={buttonClasses({ variant: "secondary" })}>
+                View bundles
+              </Link>
+            )
+          }
+        />
+      </div>
+    );
+  }
+
   const fallback = getDefaultBundle();
   const bundleSlug =
     sp.bundle ||

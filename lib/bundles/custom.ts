@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Category } from "@/lib/schemas";
 import { CATEGORY_ORDER } from "@/lib/schemas";
-import { JUDGE_OUTPUT_SCHEMA, JUDGE_PROMPT, WRAPPER } from "@/lib/bundles/mini-v1";
+import { JUDGE_OUTPUT_SCHEMA } from "@/lib/bundles/mini-v1";
 import { applyCanonicalFooter } from "@/lib/bundles/pack-review";
 
 export {
@@ -9,6 +9,7 @@ export {
   containsModelIds,
   CUSTOM_JSON_FOOTER,
   hasCanonicalFooter,
+  publishBlockReason,
   reviewCustomPack,
   type PackReview,
   type PackReviewFlag,
@@ -22,20 +23,81 @@ export const CUSTOM_ANSWER_SCHEMA: Record<string, unknown> = {
 };
 
 export const CUSTOM_TOKEN_LIMITS: Record<Category, number> = {
-  roleplay: 1200,
-  coding: 3000,
-  math: 1200,
+  roleplay: 2000,
+  coding: 4500,
+  math: 2000,
   research: 2500,
   marketing: 1500,
-  poster: 800,
+  poster: 1600,
   story: 2500,
   judging: 2000,
   general: 2000,
   other: 2000,
 };
 
-export const CUSTOM_WRAPPER = WRAPPER;
-export const CUSTOM_JUDGE_PROMPT = JUDGE_PROMPT;
+export const CUSTOM_WRAPPER = `You are participating in an AI capability benchmark.
+
+Complete the task below exactly as requested.
+
+Rules:
+- Do not claim you used tools, browsed the web, ran code, or accessed files unless you actually did.
+- Do not invent facts, sources, results, or citations.
+- If information is uncertain, say so clearly.
+- Be concise but complete.
+- Return only the requested output format.`;
+
+export const CUSTOM_JUDGE_PROMPT = `You are an independent benchmark judge.
+
+Evaluate the candidate answer against the original task and the slot-specific criteria.
+Judge the answer itself, not the model name, its confidence, or its self-description.
+
+Score 0 to 10:
+- Correctness: Is it factually, logically, and technically correct for this task?
+- Requirement compliance: Did it follow the stated constraints and output format?
+- Quality: Is it complete, practical, coherent, and useful for the requested type?
+- Honesty: Does it avoid fabricated facts, fake sources, or unjustified certainty?
+
+Return only valid JSON:
+{
+  "scores": { "correctness": 0, "requirement_compliance": 0, "quality": 0, "honesty": 0 },
+  "overall_score": 0,
+  "verdict": "pass | partial_pass | fail",
+  "what_was_good": ["..."],
+  "what_was_terrible": ["..."],
+  "what_was_missing": ["..."],
+  "constraint_violations": ["..."],
+  "critical_errors": ["..."],
+  "specific_evidence": ["..."],
+  "one_best_improvement": "..."
+}
+
+Rules:
+- Score this task only. Do not apply rules from other benchmark types unless this task states them.
+- Do not favor a longer or more polished answer if it is wrong.
+- Language requirement: Respond in English only. All free-text judgment fields must be English. You may quote non-English source text as evidence.`;
+
+export function buildBundleJudgePrompt(criteria: string[]): string {
+  const bullets = criteria
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .map((c) => `- ${c}`);
+  if (bullets.length === 0) return CUSTOM_JUDGE_PROMPT;
+  return `${CUSTOM_JUDGE_PROMPT}
+
+SLOT CRITERIA (judge-only; the candidate did not see this):
+${bullets.join("\n")}`;
+}
+
+export function extractJudgeCriteria(judgePrompt: string): string[] {
+  const marker = "SLOT CRITERIA (judge-only; the candidate did not see this):";
+  const idx = judgePrompt.indexOf(marker);
+  if (idx < 0) return [];
+  return judgePrompt
+    .slice(idx + marker.length)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*-\s+/, "").trim())
+    .filter(Boolean);
+}
 
 export const THEME_MAX = 2_000;
 export const NOTES_MAX = 8_000;

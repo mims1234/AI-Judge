@@ -76,7 +76,7 @@ export default function PrivacyPage() {
       <LegalSection id="public" title="Lab records are public">
         <LegalP>
           This is a shared instrument, not a private notebook. If you put
-          something in a run, a playground chat, or a published pack, treat it
+          something in a run, a playground chat, or a published bundle, treat it
           as public.
         </LegalP>
         <LegalList
@@ -84,7 +84,7 @@ export default function PrivacyPage() {
             "Benchmark runs — listed on /runs. Snapshots, live workbenches, and JSON/CSV exports are open. Anyone who knows the run id can read answers and judge text. Only pause, resume, cancel, and retry stay locked to the person who launched the run.",
             "Leaderboards, compare, and judges pages — built from every complete run on this host.",
             "Playground chats — no login required. Transcripts and judgments are stored. Recent sessions are listed. Anyone with the session link can read them.",
-            "Published packs — listed on /bundles with your Discord name and avatar. Drafts stay visible only to you until you publish. Published packs cannot be edited or deleted.",
+            "Published bundles — listed on /bundles with your Discord name and avatar. Drafts stay visible only to you until you publish. Published bundles cannot be edited or deleted.",
           ]}
         />
         <LegalP>
@@ -114,7 +114,7 @@ export default function PrivacyPage() {
       <LegalSection id="models" title="What we send to model providers">
         <LegalP>
           When you launch a run, chat, test a key, refresh the catalog, or
-          generate a pack, this server sends prompts and model output to
+          generate a bundle, this server sends prompts and model output to
           OpenRouter using your key (or a server key in local/dev mode). That
           includes task text, candidate answers, judge prompts, and playground
           transcripts.
@@ -175,7 +175,7 @@ export default function PrivacyPage() {
       <LegalSection id="keep" title="We do not delete lab records">
         <LegalP>
           There is no “delete my account” or “forget me” button, and we do not
-          promise to erase runs, chats, published packs, or scores if you ask.
+          promise to erase runs, chats, published bundles, or scores if you ask.
           Those rows are the lab’s public record. The leaderboard only stays
           honest if completed work remains.
         </LegalP>

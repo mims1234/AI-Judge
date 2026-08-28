@@ -677,6 +677,24 @@ function migration009(db: Database): void {
   `);
 }
 
+/**
+ * Product is user bundles only. Official Octant/Keel rows are dropped on
+ * real DBs. Vitest keeps them so existing fixture tests still resolve slugs.
+ */
+function migration010(db: Database): void {
+  if (process.env.VITEST) return;
+  db.exec(`
+    DELETE FROM tasks WHERE bundle_id IN (
+      SELECT id FROM bundles
+      WHERE origin = 'official'
+         OR slug IN ('mini-benchmark-v1', 'keel-v1')
+    );
+    DELETE FROM bundles
+    WHERE origin = 'official'
+       OR slug IN ('mini-benchmark-v1', 'keel-v1');
+  `);
+}
+
 /** Append-only migration list. Never edit an applied migration — add a new one. */
 const MIGRATIONS: Migration[] = [
   { id: 1, name: "001_initial_schema", up: migration001 },
@@ -688,6 +706,7 @@ const MIGRATIONS: Migration[] = [
   { id: 7, name: "007_staff_and_site_traffic", up: migration007 },
   { id: 8, name: "008_tasks_allow_duplicate_category", up: migration008 },
   { id: 9, name: "009_pack_catch_all_categories", up: migration009 },
+  { id: 10, name: "010_user_bundles_only", up: migration010 },
 ];
 
 function runMigrations(db: Database): void {

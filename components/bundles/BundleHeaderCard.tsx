@@ -24,7 +24,7 @@ export function BundleHeaderCard({
     day: "numeric",
   });
   const meta = bundle as BundleListItem;
-  const categoryCount = meta.categoryCount ?? 8;
+  const categoryCount = meta.categoryCount ?? 0;
   const quality = meta.quality ?? null;
   const author = meta.author ?? null;
 
@@ -34,9 +34,6 @@ export function BundleHeaderCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-mono text-lg text-bright">{bundle.slug}</h2>
-            <Badge tone={bundle.origin === "custom" ? "info" : "teal"}>
-              {bundle.origin === "custom" ? "CUSTOM" : "OFFICIAL"}
-            </Badge>
             <Badge tone={bundle.status === "published" ? "teal" : "neutral"}>
               {bundle.status.toUpperCase()}
             </Badge>
@@ -59,7 +56,7 @@ export function BundleHeaderCard({
         {quality && (
           <div className="flex flex-col items-end gap-1">
             <span className="text-[11px] uppercase tracking-wide text-faint">
-              Pack review
+              Bundle review
             </span>
             <PackQualityBadge quality={quality} size="md" />
           </div>
@@ -70,7 +67,7 @@ export function BundleHeaderCard({
         <div className="mt-3 flex items-center gap-2 border-t border-line-subtle pt-3">
           <AuthorChip author={author} className="text-sm" />
           {bundle.origin === "custom" && (
-            <span className="text-xs text-faint">· pack author</span>
+            <span className="text-xs text-faint">· bundle author</span>
           )}
         </div>
       )}
@@ -88,9 +85,8 @@ export function BundleHeaderCard({
       )}
 
       <p className="mt-3 text-xs text-faint">
-        {bundle.origin === "official"
-          ? "Published official bundles are immutable — changes create a new version and a new leaderboard."
-          : "Published custom packs are immutable. Improve by publishing a new pack — the original stays frozen."}
+        Published bundles are immutable. Improve by publishing a new bundle —
+        the original stays frozen.
       </p>
 
       {(bundle.status === "published" && canLaunch) || canImprove ? (
@@ -100,7 +96,7 @@ export function BundleHeaderCard({
               href={`/run?bundle=${encodeURIComponent(bundle.slug)}`}
               className={buttonClasses({ variant: "primary" })}
             >
-              Run this pack →
+              Run this bundle →
             </Link>
           )}
           {canImprove && (
@@ -109,7 +105,7 @@ export function BundleHeaderCard({
               className={buttonClasses({ variant: "secondary" })}
               data-testid="pack-improve"
             >
-              Improve as a new pack →
+              Improve as a new bundle →
             </Link>
           )}
         </div>

@@ -99,9 +99,12 @@ export default function CookiesPage() {
             </>,
             <>
               <span className="font-mono text-bright">
-                ai-judge:pack-rules-ack
+                ai-judge:bundle-rules-ack
               </span>{" "}
-              in sessionStorage — remembers you read pack rules in this tab.
+              in sessionStorage — remembers you read bundle rules in this tab.
+              The older key{" "}
+              <span className="font-mono">ai-judge:pack-rules-ack</span> still
+              counts as acknowledged.
             </>,
           ]}
         />

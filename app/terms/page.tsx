@@ -54,7 +54,7 @@ export default function TermsPage() {
       <LegalSection id="the-lab" title="What this site is">
         <LegalList
           items={[
-            "A shared bench that sends versioned prompt packs to models, runs validators, and scores answers with a seeded blind judge panel.",
+            "A shared bench that sends versioned prompt bundles to models, runs validators, and scores answers with a seeded blind judge panel.",
             "A public leaderboard built from scored, non-cancelled runs on this host.",
             "A playground for shorter judged chats.",
             "Not legal, medical, or safety advice. Not an official ranking of any vendor.",
@@ -64,10 +64,10 @@ export default function TermsPage() {
 
       <LegalSection id="public" title="You are publishing">
         <LegalP>
-          Runs, playground chats, published packs, and leaderboard scores are
+          Runs, playground chats, published bundles, and leaderboard scores are
           public lab records. Other people can read them. Only run controls
-          (pause, resume, cancel, retry) are limited to the launcher. Pack
-          drafts stay yours until you publish; published packs cannot be
+          (pause, resume, cancel, retry) are limited to the launcher. Bundle
+          drafts stay yours until you publish; published bundles cannot be
           edited or deleted.
         </LegalP>
         <LegalP>
@@ -102,7 +102,7 @@ export default function TermsPage() {
         <LegalList
           items={[
             "Break the law or ask the lab to help you break it.",
-            "Write sexual content involving minors, or tasks about weapons, pathogens, or crime-as-the-job — including in custom packs.",
+            "Write sexual content involving minors, or tasks about weapons, pathogens, or crime-as-the-job — including in custom bundles.",
             "Try to break, scrape destructively, or overload the host.",
             "Impersonate staff, probe other people’s keys, or treat this as a private API for a product you sell without asking.",
             "Paste secrets, other people’s personal data, or anything you need to stay confidential.",

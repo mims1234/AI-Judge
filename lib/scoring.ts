@@ -5,9 +5,9 @@ import { withJudgeEnglishOnly } from "@/lib/bundles/judge-language";
 import { getDb, prepare } from "@/lib/db";
 import { getCachedModel, streamChat } from "@/lib/openrouter";
 import { getCallDeadlineMs, getMaxRetries } from "@/lib/server/appSettings";
+import { JUDGE_MAX_TOKENS, parseJudgeOutput } from "@/lib/judge-parse";
 import {
   CATEGORY_ORDER,
-  JudgeOutputSchema,
   judgeOutputJsonSchema,
   type Category,
   type JudgeOutput,
@@ -1050,7 +1050,7 @@ export function evaluatePreflight(input: {
     if (tasks.length < 1 || tasks.length > 5) {
       errors.push({
         code: "CUSTOM_PACK_SIZE",
-        message: "Custom packs must have 1–5 tasks",
+        message: "Bundles must have 1–5 tasks",
       });
     }
   }
@@ -1339,7 +1339,8 @@ export async function runCalibration(
           { role: "user", content: user },
         ],
         temperature: 0,
-        maxTokens: 1536,
+        maxTokens: JUDGE_MAX_TOKENS,
+        excludeReasoning: true,
         responseFormat: {
           name: "judge_output",
           schema: judgeOutputJsonSchema,
@@ -1351,15 +1352,10 @@ export async function runCalibration(
         maxRetries: getMaxRetries(),
       });
       raw = result.text;
-      const cleaned = raw
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/\s*```$/i, "")
-        .trim();
-      const json = JSON.parse(cleaned);
-      const safe = JudgeOutputSchema.safeParse(json);
-      if (safe.success) {
-        parsed = safe.data;
-        parse_status = "first_try";
+      const judged = parseJudgeOutput(raw);
+      if (judged.ok) {
+        parsed = judged.parsed;
+        parse_status = judged.parse_status;
       }
     } catch {
       parse_status = "invalid";
