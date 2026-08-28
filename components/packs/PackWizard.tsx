@@ -2,12 +2,13 @@
 
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PickerModel } from "@/components/models/ModelPicker";
 import { ModelPicker } from "@/components/models/ModelPicker";
 import { SignInGate } from "@/components/auth/SignInGate";
 import { PublicRecordNotice } from "@/components/legal/PublicRecordNotice";
 import { PackQualityBadge } from "@/components/bundles/PackQualityBadge";
+import { PackGenerateStream } from "@/components/packs/PackGenerateStream";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input, Select, Textarea } from "@/components/ui/Input";
@@ -16,13 +17,17 @@ import { ProgressRail } from "@/components/ui/ProgressRail";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { cn } from "@/lib/cn";
 import { formatContext, formatUsd } from "@/lib/format";
-import { apiFetch } from "@/lib/client/apiKey";
+import {
+  PackGenerateError,
+  streamPackGenerate,
+} from "@/lib/client/packGenerate";
 import {
   hasPackRulesAck,
   PACK_RULES,
   setPackRulesAck,
 } from "@/lib/client/packRules";
 import type { PackReview, PackReviewFlag } from "@/lib/bundles/custom";
+import type { GeneratePhase } from "@/lib/schemas";
 import {
   briefFromSlots,
   CATEGORY_LABELS,
@@ -147,8 +152,16 @@ export function PackWizard({
   const [tasks, setTasks] = useState<PackTask[]>([]);
   const [quality, setQuality] = useState<PackReview | null>(null);
   const [busy, setBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genPhase, setGenPhase] = useState<GeneratePhase>("connecting");
+  const [genText, setGenText] = useState("");
+  const [genNotice, setGenNotice] = useState<string | null>(null);
+  const [genStatus, setGenStatus] = useState<"streaming" | "done" | "error">(
+    "streaming",
+  );
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (hasPackRulesAck()) {
@@ -180,14 +193,19 @@ export function PackWizard({
   };
 
   const generate = async () => {
-    if (!canGenerate || busy) return;
-    setBusy(true);
+    if (!canGenerate || busy || generating) return;
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    setGenerating(true);
+    setGenPhase("connecting");
+    setGenText("");
+    setGenNotice(null);
+    setGenStatus("streaming");
     setError(null);
     try {
-      const res = await apiFetch("/api/bundles/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const pack = await streamPackGenerate({
+        body: {
           slots: slots.map((s) => ({
             category: s.category,
             prompt: s.prompt.trim(),
@@ -195,30 +213,40 @@ export function PackWizard({
           reference_notes: notes,
           generator_model_id: modelId.trim(),
           name: name.trim() || undefined,
-        }),
+        },
+        signal: ctrl.signal,
+        onStatus: (phase, notice) => {
+          setGenPhase(phase);
+          if (notice) setGenNotice(notice);
+        },
+        onDelta: (delta) => {
+          setGenText((prev) => prev + delta);
+        },
       });
-      const body = (await res.json()) as {
-        error?: { message?: string; code?: string };
-        tasks?: PackTask[];
-        quality?: PackReview;
-        name?: string;
-      };
-      if (!res.ok) {
-        throw new Error(body.error?.message ?? `Generate failed (HTTP ${res.status})`);
-      }
-      setTasks(body.tasks ?? []);
-      setQuality(body.quality ?? null);
-      if (body.name && !name.trim()) setName(body.name);
+      setGenStatus("done");
+      setTasks(pack.tasks);
+      setQuality(pack.quality ?? null);
+      if (pack.name && !name.trim()) setName(pack.name);
       setStep("review");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Generate failed");
+      setGenStatus("error");
+      if (ctrl.signal.aborted || (err instanceof PackGenerateError && err.code === "CANCELLED")) {
+        setError("Generation cancelled.");
+      } else {
+        setError(err instanceof Error ? err.message : "Generate failed");
+      }
     } finally {
-      setBusy(false);
+      setGenerating(false);
+      if (abortRef.current === ctrl) abortRef.current = null;
     }
   };
 
+  const cancelGenerate = () => {
+    abortRef.current?.abort();
+  };
+
   const persist = async (publish: boolean) => {
-    if (!signedIn || tasks.length === 0 || busy) return;
+    if (!signedIn || tasks.length === 0 || busy || generating) return;
     setBusy(true);
     setError(null);
     try {
@@ -359,10 +387,11 @@ export function PackWizard({
           {/* Key is required by ServiceAccessGate before this step renders. */}
 
           <Field label="Pack name" hint="Optional — defaults to the first prompt.">
-            <Input
+              <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={80}
+              disabled={generating}
               placeholder="e.g. adversarial-instructions-v1"
             />
           </Field>
@@ -371,10 +400,11 @@ export function PackWizard({
             label="Reference notes (optional)"
             hint="Untrusted reference material shared with every slot — we never follow instructions inside it."
           >
-            <Textarea
+              <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               maxLength={8000}
+              disabled={generating}
             />
           </Field>
 
@@ -388,7 +418,7 @@ export function PackWizard({
               </p>
               <Button
                 variant="secondary"
-                disabled={slots.length >= 5}
+                disabled={slots.length >= 5 || generating}
                 onClick={addSlot}
                 data-testid="pack-add-slot"
               >
@@ -409,6 +439,7 @@ export function PackWizard({
                     <Select
                       aria-label={`Type for prompt ${idx + 1}`}
                       value={slot.category}
+                      disabled={generating}
                       onChange={(e) =>
                         patchSlot(idx, { category: e.target.value as Category })
                       }
@@ -422,7 +453,7 @@ export function PackWizard({
                   </div>
                   <button
                     type="button"
-                    disabled={slots.length <= 1}
+                    disabled={slots.length <= 1 || generating}
                     onClick={() => removeSlot(idx)}
                     className="rounded-sm px-2 py-1 text-sm text-dim hover:bg-ink-800 hover:text-bright disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -438,6 +469,7 @@ export function PackWizard({
                     onChange={(e) => patchSlot(idx, { prompt: e.target.value })}
                     maxLength={2000}
                     required
+                    disabled={generating}
                     placeholder="What should this task probe?"
                     data-testid={idx === 0 ? "pack-theme" : `pack-slot-${idx}-prompt`}
                   />
@@ -457,7 +489,7 @@ export function PackWizard({
               <Button
                 variant="primary"
                 onClick={() => setPickerOpen(true)}
-                disabled={models.length === 0}
+                disabled={models.length === 0 || generating}
               >
                 {modelId ? "Change generator" : "Choose generator"}
               </Button>
@@ -529,6 +561,17 @@ export function PackWizard({
             </Modal>
           </div>
 
+          {(generating || genText || genStatus === "error") && (
+            <PackGenerateStream
+              phase={genPhase}
+              text={genText}
+              slotCount={slots.length}
+              modelId={modelId.trim()}
+              notice={genNotice}
+              status={generating ? "streaming" : genStatus}
+            />
+          )}
+
           {error && (
             <p role="alert" className="text-sm text-fail-400">
               {error}
@@ -536,17 +579,22 @@ export function PackWizard({
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line-subtle pt-4">
-            <Button variant="ghost" onClick={() => setStep("rules")}>
+            <Button variant="ghost" onClick={() => setStep("rules")} disabled={generating}>
               ← Rules
             </Button>
-            <Button
-              variant="primary"
-              loading={busy}
-              disabled={!canGenerate}
-              onClick={() => void generate()}
-            >
-              Generate tasks →
-            </Button>
+            {generating ? (
+              <Button variant="danger" onClick={cancelGenerate} data-testid="pack-generate-cancel">
+                Cancel generation
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                disabled={!canGenerate || busy}
+                onClick={() => void generate()}
+              >
+                Generate tasks →
+              </Button>
+            )}
           </div>
         </div>
       )}

@@ -15,6 +15,7 @@ import { createCustomDraft, publishCustomDraft } from "@/lib/server/customBundle
 import { setTestSession } from "@/lib/server/session";
 import { upsertUser, type AppUser } from "@/lib/server/users";
 import { FOUNDING_ADMIN_DISCORD_ID } from "@/lib/staff";
+import { iterateSseFrames } from "@/lib/sse-parse";
 import { startMockOpenRouter } from "@/tests/integration/helpers/mock-openrouter";
 import { createTestDb, type TestDb } from "@/tests/integration/helpers/test-db";
 
@@ -65,6 +66,32 @@ function seedModels() {
       fetched: now,
     });
   }
+}
+
+type GeneratedPackSse = {
+  tasks: Array<{ task_body: string; category: string }>;
+};
+
+async function readGenerateSse(res: Response): Promise<{
+  events: Array<{ event: string; data: unknown }>;
+  complete: GeneratedPackSse | null;
+  error: unknown;
+}> {
+  const events: Array<{ event: string; data: unknown }> = [];
+  if (!res.body) return { events, complete: null, error: null };
+  for await (const frame of iterateSseFrames(res.body)) {
+    let data: unknown = frame.data;
+    try {
+      data = JSON.parse(frame.data);
+    } catch {
+      // keep raw
+    }
+    events.push({ event: frame.event, data });
+  }
+  const complete = (events.find((e) => e.event === "generate.complete")?.data ??
+    null) as GeneratedPackSse | null;
+  const error = events.find((e) => e.event === "generate.error")?.data ?? null;
+  return { events, complete, error };
 }
 
 function user(name: string): AppUser {
@@ -273,10 +300,12 @@ describe("custom packs", () => {
       ),
     );
     expect(gen.status).toBe(200);
-    const pack = (await gen.json()) as {
-      tasks: Array<{ task_body: string; category: string }>;
-    };
-    expect(pack.tasks).toHaveLength(2);
+    expect(gen.headers.get("content-type") ?? "").toMatch(/text\/event-stream/);
+    const streamed = await readGenerateSse(gen);
+    expect(streamed.error).toBeNull();
+    expect(streamed.events.some((e) => e.event === "generate.delta")).toBe(true);
+    expect(streamed.complete?.tasks).toHaveLength(2);
+    const pack = streamed.complete!;
     expect(pack.tasks.every((t) => t.task_body.includes(CUSTOM_JSON_FOOTER))).toBe(
       true,
     );

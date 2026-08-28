@@ -1047,10 +1047,93 @@ export const GeneratedPackSchema = z.object({
   tasks: customTasks,
 });
 
+export const GENERATE_PHASES = [
+  "connecting",
+  "writing",
+  "validating",
+  "reviewing",
+] as const;
+export type GeneratePhase = (typeof GENERATE_PHASES)[number];
+
+export const PackReviewFlagSchema = z.enum([
+  "too_short",
+  "missing_must_mention",
+  "answer_leak",
+  "missing_json_footer",
+  "candidate_id_leak",
+]);
+
+export const PackReviewSchema = z.object({
+  score: z.number(),
+  flags: z.array(
+    z.object({
+      category: CategorySchema,
+      flag: PackReviewFlagSchema,
+    }),
+  ),
+  reviewed_at: z.number(),
+});
+
+export const GeneratedPackResultSchema = z.object({
+  name: z.string(),
+  brief: z.string(),
+  reference_notes: z.string(),
+  generator_model_id: z.string(),
+  tasks: customTasks,
+  quality: PackReviewSchema,
+});
+export type GeneratedPackResult = z.infer<typeof GeneratedPackResultSchema>;
+
+export const SseGenerateStatusSchema = z.object({
+  event: z.literal("generate.status"),
+  data: z.object({
+    phase: z.enum(GENERATE_PHASES),
+    notice: z.string().optional(),
+  }),
+});
+
+export const SseGenerateDeltaSchema = z.object({
+  event: z.literal("generate.delta"),
+  data: z.object({
+    delta: z.string(),
+    tokens: z.number().optional(),
+  }),
+});
+
+export const SseGenerateCompleteSchema = z.object({
+  event: z.literal("generate.complete"),
+  data: GeneratedPackResultSchema,
+});
+
+export const SseGenerateErrorSchema = z.object({
+  event: z.literal("generate.error"),
+  data: z.object({
+    code: z.string(),
+    message: z.string(),
+  }),
+});
+
+export const SseGenerateHeartbeatSchema = z.object({
+  event: z.literal("generate.heartbeat"),
+  data: z.object({ ts: z.number() }),
+});
+
+export const GenerateSseEventSchema = z.discriminatedUnion("event", [
+  SseGenerateStatusSchema,
+  SseGenerateDeltaSchema,
+  SseGenerateCompleteSchema,
+  SseGenerateErrorSchema,
+  SseGenerateHeartbeatSchema,
+]);
+export type GenerateSseEvent = z.infer<typeof GenerateSseEventSchema>;
+
 /** Event types that are never persisted to run_events. */
 export const EPHEMERAL_SSE_EVENTS = new Set([
   "candidate.delta",
   "judge.delta",
   "heartbeat",
   "resync",
+  "generate.delta",
+  "generate.status",
+  "generate.heartbeat",
 ]);

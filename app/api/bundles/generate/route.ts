@@ -1,28 +1,52 @@
-import {
-  applyCanonicalFooter,
-  reviewCustomPack,
-  THEME_MAX,
-} from "@/lib/bundles/custom";
-import { briefFromSlots } from "@/lib/bundles/task-labels";
+import { THEME_MAX } from "@/lib/bundles/custom";
+import { finalizeGeneratedPack } from "@/lib/bundles/finalize-generated";
 import { generatedPackJsonSchema } from "@/lib/bundles/generate-schema";
 import { safetyFn } from "@/lib/bundles/safety";
 import {
   apiError,
+  formatSseFrame,
   getKeyFromRequest,
   needsKeyError,
   parseBody,
 } from "@/lib/api-helpers";
-import { hasApiKey, streamChat } from "@/lib/openrouter";
+import { hasApiKey, OpenRouterError, streamChat } from "@/lib/openrouter";
 import { getCallDeadlineMs, getMaxRetries } from "@/lib/server/appSettings";
-import {
-  GenerateCustomBundleSchema,
-  GeneratedPackSchema,
-} from "@/lib/schemas";
+import { GenerateCustomBundleSchema } from "@/lib/schemas";
 import { mapThrownApiError } from "@/lib/server/httpErrors";
 import { requireSession } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+function generateErrorPayload(err: unknown): { code: string; message: string } {
+  if (err instanceof OpenRouterError) {
+    if (err.kind === "aborted") {
+      return { code: "CANCELLED", message: "Generation cancelled." };
+    }
+    if (err.kind === "timeout") {
+      return {
+        code: "TIMEOUT",
+        message:
+          "The generator timed out. Try a faster model or fewer prompts.",
+      };
+    }
+    if (err.kind === "auth" || err.kind === "missing_key") {
+      return { code: "NEEDS_KEY", message: err.message };
+    }
+    if (err.kind === "rate_limited") {
+      return { code: "UPSTREAM_ERROR", message: err.message };
+    }
+    return { code: "UPSTREAM_ERROR", message: err.message };
+  }
+  if (err instanceof Error && err.name === "AbortError") {
+    return { code: "CANCELLED", message: "Generation cancelled." };
+  }
+  return {
+    code: "INTERNAL_ERROR",
+    message: err instanceof Error ? err.message : "Generate failed",
+  };
+}
 
 export async function POST(request: Request) {
   try {
@@ -78,84 +102,116 @@ Do not mention model names or OpenRouter ids.`;
       .filter(Boolean)
       .join("\n\n");
 
-    const result = await streamChat({
-      model: parsed.data.generator_model_id,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0.4,
-      maxTokens: Math.min(8000, Math.max(4000, slots.length * 1600)),
-      maxRetries: getMaxRetries(),
-      responseFormat: {
-        name: "custom_pack",
-        schema: generatedPackJsonSchema,
-      },
-      signal: request.signal,
-      deadlineMs: getCallDeadlineMs(),
-      apiKey: userKey,
-      onDelta: () => {
-        /* collect via result.text */
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        let closed = false;
+        const send = (event: string, data: unknown) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(formatSseFrame({ event, data })));
+          } catch {
+            closed = true;
+          }
+        };
+
+        const heartbeat = setInterval(() => {
+          send("generate.heartbeat", { ts: Date.now() });
+        }, 15_000);
+
+        let pendingDelta = "";
+        let lastFlush = 0;
+        const flush = () => {
+          if (!pendingDelta) return;
+          const delta = pendingDelta;
+          pendingDelta = "";
+          lastFlush = Date.now();
+          send("generate.delta", { delta });
+        };
+
+        try {
+          send("generate.status", { phase: "connecting" });
+          send("generate.status", { phase: "writing" });
+
+          const result = await streamChat({
+            model: parsed.data.generator_model_id,
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: user },
+            ],
+            temperature: 0.4,
+            maxTokens: Math.min(8000, Math.max(4000, slots.length * 1600)),
+            maxRetries: getMaxRetries(),
+            responseFormat: {
+              name: "custom_pack",
+              schema: generatedPackJsonSchema,
+            },
+            signal: request.signal,
+            deadlineMs: getCallDeadlineMs(),
+            apiKey: userKey,
+            onDelta: (d) => {
+              pendingDelta += d;
+              if (Date.now() - lastFlush >= 66) flush();
+            },
+            onRetry: (attempt, delayMs, reason) => {
+              send("generate.status", {
+                phase: "writing",
+                notice: `Retry ${attempt} in ${Math.round(delayMs / 1000)}s (${reason})`,
+              });
+            },
+          });
+          flush();
+
+          send("generate.status", { phase: "validating" });
+          const finalized = finalizeGeneratedPack({
+            rawText: result.text,
+            slots,
+            notes,
+          });
+          if (!finalized.ok) {
+            send("generate.error", {
+              code: finalized.code,
+              message: finalized.message,
+            });
+            return;
+          }
+
+          send("generate.status", { phase: "reviewing" });
+          send("generate.complete", {
+            name: parsed.data.name || slots[0]!.prompt.slice(0, 60),
+            brief: finalized.brief,
+            reference_notes: notes,
+            generator_model_id: parsed.data.generator_model_id,
+            tasks: finalized.tasks,
+            quality: finalized.quality,
+          });
+        } catch (err) {
+          const payload = generateErrorPayload(err);
+          if (payload.code !== "CANCELLED") {
+            console.error("[api] generate", payload.code, payload.message);
+          }
+          send("generate.error", payload);
+        } finally {
+          clearInterval(heartbeat);
+          if (!closed) {
+            closed = true;
+            try {
+              controller.close();
+            } catch {
+              // ignore
+            }
+          }
+        }
       },
     });
 
-    let parsedPack: unknown;
-    try {
-      parsedPack = JSON.parse(result.text);
-    } catch {
-      return apiError(
-        "VALIDATION_ERROR",
-        422,
-        "Generator returned invalid JSON. Try another model.",
-      );
-    }
-
-    const pack = GeneratedPackSchema.safeParse(parsedPack);
-    if (!pack.success) {
-      return apiError(
-        "VALIDATION_ERROR",
-        422,
-        "Generator output did not match the pack schema.",
-        { issues: pack.error.issues },
-      );
-    }
-
-    if (pack.data.tasks.length !== slots.length) {
-      return apiError(
-        "VALIDATION_ERROR",
-        422,
-        `Generator returned ${pack.data.tasks.length} tasks; expected ${slots.length}.`,
-      );
-    }
-
-    const brief = briefFromSlots(slots);
-    const tasks = slots.map((slot, i) => {
-      const t = pack.data.tasks[i]!;
-      return {
-        category: slot.category,
-        task_body: applyCanonicalFooter(t.task_body),
-        must_mention: t.must_mention,
-      };
-    });
-
-    const after = safetyFn(
-      brief,
-      notes,
-      tasks.map((t) => t.task_body),
-      tasks.flatMap((t) => t.must_mention),
-    );
-    if (!after.ok) {
-      return apiError("SAFETY_REFUSED", 400, after.message);
-    }
-
-    const quality = reviewCustomPack({ tasks });
-    return Response.json({
-      name: parsed.data.name || slots[0]!.prompt.slice(0, 60),
-      brief,
-      reference_notes: notes,
-      generator_model_id: parsed.data.generator_model_id,
-      tasks,
-      quality,
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
     });
   } catch (err) {
     return mapThrownApiError(err);

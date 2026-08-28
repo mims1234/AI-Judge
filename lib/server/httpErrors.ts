@@ -4,6 +4,7 @@ import {
   forbiddenError,
   needsLoginError,
 } from "@/lib/api-helpers";
+import { OpenRouterError } from "@/lib/openrouter";
 import { AuthRequiredError, ForbiddenError } from "@/lib/server/session";
 
 export function mapThrownApiError(err: unknown): NextResponse {
@@ -12,6 +13,9 @@ export function mapThrownApiError(err: unknown): NextResponse {
   }
   if (err instanceof ForbiddenError) {
     return forbiddenError(err.message);
+  }
+  if (err instanceof OpenRouterError && err.kind === "aborted") {
+    return apiError("UPSTREAM_ERROR", 400, "Request cancelled.");
   }
   const code =
     err && typeof err === "object" && "code" in err
