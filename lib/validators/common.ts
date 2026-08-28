@@ -81,6 +81,8 @@ export interface TaskSnapshot {
   wrapper?: string;
   task_body?: string;
   judge_prompt?: string;
+  validator_profile?: "official" | "custom_answer_v1";
+  must_mention?: string[];
 }
 
 export interface ExtractResult {
@@ -291,6 +293,15 @@ export function runUniversalValidators(
       skippedFinding("key_types"),
       skippedFinding("array_counts"),
     );
+    if (task.validator_profile === "custom_answer_v1") {
+      findings.push({
+        validator: "custom_answer_schema",
+        passed: false,
+        expected_json: '{"answer":"string"}',
+        actual_json: null,
+        details: "output is not valid custom answer JSON",
+      });
+    }
     return { findings, parsed: null };
   }
 
@@ -366,6 +377,30 @@ export function runUniversalValidators(
     ),
     details: countFails.join("; "),
   });
+
+  if (task.validator_profile === "custom_answer_v1" && parsed) {
+    const extras = Object.keys(parsed).filter((k) => !(k in properties));
+    findings.push({
+      validator: "no_additional_properties",
+      passed: extras.length === 0,
+      expected_json: JSON.stringify(Object.keys(properties)),
+      actual_json: JSON.stringify(Object.keys(parsed)),
+      details: extras.length === 0 ? "" : `extra keys: ${extras.join(", ")}`,
+    });
+
+    const schemaOk =
+      findings.some((f) => f.validator === "required_keys" && f.passed) &&
+      findings.some((f) => f.validator === "key_types" && f.passed) &&
+      extras.length === 0 &&
+      typeof parsed.answer === "string";
+    findings.push({
+      validator: "custom_answer_schema",
+      passed: schemaOk,
+      expected_json: '{"answer":"string"}',
+      actual_json: JSON.stringify(Object.keys(parsed)),
+      details: schemaOk ? "" : "custom answer schema failed",
+    });
+  }
 
   return { findings, parsed };
 }

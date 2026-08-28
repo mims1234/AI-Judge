@@ -30,6 +30,10 @@ export function runValidators(
 ): ValidatorFinding[] {
   const { findings, parsed } = runUniversalValidators(rawOutput, task);
 
+  if (task.validator_profile === "custom_answer_v1") {
+    return findings;
+  }
+
   switch (category) {
     case "poster":
       findings.push(validatePosterWordLimit(parsed));
@@ -51,6 +55,8 @@ export function runValidators(
       break;
     case "research":
     case "judging":
+    case "general":
+    case "other":
       break;
     default:
       break;

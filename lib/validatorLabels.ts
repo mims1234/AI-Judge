@@ -45,6 +45,8 @@ const CATEGORY_VALIDATORS: Record<Category, string[]> = {
   poster: ["poster_word_limit"],
   story: ["story_word_range"],
   judging: [],
+  general: [],
+  other: [],
 };
 
 /** Ordered validator names run for a category (universal chain + specific). */
@@ -62,4 +64,6 @@ export const CATEGORY_SUMMARIES: Record<Category, string> = {
   poster: "Announcement poster text for a Midnight Code Jam, ≤ 65 words",
   story: "Sci-fi short: a moderation bot quietly preventing multiverse disasters",
   judging: "Score two answers about storing encrypted passwords",
+  general: "Open-ended prompt that does not fit a single official type",
+  other: "Catch-all when none of the named types apply",
 };

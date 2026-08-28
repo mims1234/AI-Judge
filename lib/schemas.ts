@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-/** Exact 8 category names (lowercase) — shared contract. */
-export const CategorySchema = z.enum([
+/** Official Octant/Keel axes — never add types here. */
+export const OFFICIAL_CATEGORY_ORDER = [
   "roleplay",
   "coding",
   "math",
@@ -10,19 +10,29 @@ export const CategorySchema = z.enum([
   "poster",
   "story",
   "judging",
+] as const;
+export type OfficialCategory = (typeof OFFICIAL_CATEGORY_ORDER)[number];
+
+/** All pack types: official eight plus catch-alls for custom packs. */
+export const CategorySchema = z.enum([
+  ...OFFICIAL_CATEGORY_ORDER,
+  "general",
+  "other",
 ]);
 export type Category = z.infer<typeof CategorySchema>;
 
 export const CATEGORY_ORDER: Category[] = [
-  "roleplay",
-  "coding",
-  "math",
-  "research",
-  "marketing",
-  "poster",
-  "story",
-  "judging",
+  ...OFFICIAL_CATEGORY_ORDER,
+  "general",
+  "other",
 ];
+
+/** Types that appear on a pack or run, in canonical order. */
+export function presentCategories(values: Iterable<string>): Category[] {
+  const set = new Set(values);
+  const found = CATEGORY_ORDER.filter((c) => set.has(c));
+  return found.length > 0 ? found : [...OFFICIAL_CATEGORY_ORDER];
+}
 
 export const TaskResultStatusSchema = z.enum([
   "pending",
@@ -233,7 +243,7 @@ export const PreflightRequestSchema = z.object({
   bundle_id: z.string().min(1),
   candidate_model_ids: uniqueStrings(1, 8),
   judge_pool_model_ids: uniqueStrings(3, 12),
-  categories: z.array(CategorySchema).min(1).default([...CATEGORY_ORDER]),
+  categories: z.array(CategorySchema).min(1).default([...OFFICIAL_CATEGORY_ORDER]),
   trials_per_pair: z.number().int().min(1).max(5).default(1),
   candidate_concurrency: z.number().int().min(1).max(4).default(1),
   budget_usd: z.number().positive().max(500).optional().nullable(),
@@ -325,6 +335,14 @@ export const RunSnapshotSchema = z.object({
     started_at: z.string().nullable(),
     finished_at: z.string().nullable(),
     last_event_id: z.number(),
+    launched_by: z
+      .object({
+        id: z.string(),
+        username: z.string(),
+      })
+      .nullable()
+      .optional(),
+    can_control: z.boolean().optional(),
   }),
   candidates: z.array(z.string()),
   judge_pool: z.array(z.string()),
@@ -401,7 +419,16 @@ export const RunSnapshotSchema = z.object({
     }),
   ),
   bundle_run_score: z.number().nullable(),
+  candidate_scores: z
+    .array(
+      z.object({
+        candidate_model_id: z.string(),
+        overall_score: z.number().nullable(),
+      }),
+    )
+    .optional(),
   tasks: z.array(SnapshotTaskSchema),
+  instrument_wipeout: z.boolean().optional(),
 });
 export type RunSnapshot = z.infer<typeof RunSnapshotSchema>;
 
@@ -461,8 +488,8 @@ export const ExportQuerySchema = z.object({
 
 /* ---------- Chat playground (plans/16) ---------- */
 
-/** Chat categories: the 8 benchmark categories + free-form "general". */
-export const CHAT_CATEGORY_ORDER = [...CATEGORY_ORDER, "general"] as const;
+/** Chat categories: official eight + free-form "general". Pack-only "other" stays out. */
+export const CHAT_CATEGORY_ORDER = [...OFFICIAL_CATEGORY_ORDER, "general"] as const;
 export const ChatCategorySchema = z.enum(CHAT_CATEGORY_ORDER);
 export type ChatCategory = z.infer<typeof ChatCategorySchema>;
 
@@ -979,6 +1006,46 @@ export const SseEventSchema = z.discriminatedUnion("event", [
   SseHeartbeatSchema,
 ]);
 export type SseEvent = z.infer<typeof SseEventSchema>;
+
+export const CustomTaskDraftSchema = z.object({
+  category: CategorySchema,
+  task_body: z.string().min(1).max(8_000),
+  must_mention: z.array(z.string().min(1).max(240)).max(12).default([]),
+});
+
+const customTasks = z.array(CustomTaskDraftSchema).min(1).max(5);
+
+export const PackSlotSchema = z.object({
+  category: CategorySchema,
+  prompt: z.string().min(1).max(2_000),
+});
+export type PackSlotInput = z.infer<typeof PackSlotSchema>;
+
+export const CreateCustomBundleSchema = z.object({
+  name: z.string().min(1).max(80),
+  brief: z.string().max(2_000).default(""),
+  reference_notes: z.string().max(8_000).default(""),
+  generator_model_id: z.string().min(1).max(200).nullable().optional(),
+  tasks: customTasks,
+});
+
+export const UpdateCustomBundleSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  brief: z.string().max(2_000).optional(),
+  reference_notes: z.string().max(8_000).optional(),
+  tasks: customTasks.optional(),
+});
+
+export const GenerateCustomBundleSchema = z.object({
+  slots: z.array(PackSlotSchema).min(1).max(5),
+  reference_notes: z.string().max(8_000).default(""),
+  generator_model_id: z.string().min(1),
+  name: z.string().max(80).optional(),
+});
+
+export const GeneratedPackSchema = z.object({
+  tasks: customTasks,
+});
 
 /** Event types that are never persisted to run_events. */
 export const EPHEMERAL_SSE_EVENTS = new Set([

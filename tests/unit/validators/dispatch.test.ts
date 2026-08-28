@@ -17,7 +17,7 @@ function task(category: string): TaskSnapshot {
 }
 
 describe("validator dispatch (plans/11 §1.3)", () => {
-  it("routes each of the 8 categories without throwing on valid empty-ish JSON", () => {
+  it("routes each category without throwing on valid empty-ish JSON", () => {
     for (const cat of CATEGORY_ORDER) {
       expect(() =>
         runValidators(cat, JSON.stringify({}), task(cat)),

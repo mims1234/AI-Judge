@@ -511,6 +511,172 @@ function migration005(db: Database): void {
   `);
 }
 
+/** Users + custom pack columns (author, origin, must-mention, launcher). */
+function migration006(db: Database): void {
+  db.exec(`
+    CREATE TABLE users (
+      id            TEXT PRIMARY KEY,
+      discord_id    TEXT NOT NULL UNIQUE,
+      username      TEXT NOT NULL,
+      avatar_url    TEXT,
+      created_at    INTEGER NOT NULL
+    );
+
+    ALTER TABLE bundles ADD COLUMN origin TEXT NOT NULL DEFAULT 'official';
+    ALTER TABLE bundles ADD COLUMN brief TEXT;
+    ALTER TABLE bundles ADD COLUMN reference_notes TEXT;
+    ALTER TABLE bundles ADD COLUMN generator_model_id TEXT;
+    ALTER TABLE bundles ADD COLUMN author_user_id TEXT REFERENCES users(id);
+    ALTER TABLE bundles ADD COLUMN quality_json TEXT;
+
+    ALTER TABLE tasks ADD COLUMN must_mention_json TEXT NOT NULL DEFAULT '[]';
+
+    ALTER TABLE runs ADD COLUMN launched_by_user_id TEXT REFERENCES users(id);
+
+    CREATE INDEX idx_bundles_origin_status ON bundles(origin, status);
+    CREATE INDEX idx_bundles_author ON bundles(author_user_id);
+    CREATE INDEX idx_runs_launcher ON runs(launched_by_user_id);
+  `);
+}
+
+/**
+ * Staff roles + site-traffic rollups.
+ * Daily counters / unique hashes only — never a raw pageview log.
+ */
+function migration007(db: Database): void {
+  db.exec(`
+    ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user';
+
+    UPDATE users
+    SET role = 'admin'
+    WHERE discord_id = '292675388180791297';
+
+    CREATE INDEX idx_users_role ON users(role);
+
+    CREATE TABLE site_daily (
+      day   TEXT NOT NULL,
+      path  TEXT NOT NULL,
+      views INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, path)
+    );
+
+    CREATE TABLE site_visitors (
+      day           TEXT NOT NULL,
+      visitor_hash  TEXT NOT NULL,
+      PRIMARY KEY (day, visitor_hash)
+    );
+
+    CREATE INDEX idx_site_daily_day ON site_daily(day);
+    CREATE INDEX idx_site_visitors_day ON site_visitors(day);
+  `);
+
+  db.prepare(
+    `INSERT OR IGNORE INTO users (id, discord_id, username, avatar_url, created_at, role)
+     VALUES (?, ?, ?, NULL, ?, 'admin')`,
+  ).run(
+    "00000000-0000-4000-8000-292675388180",
+    "292675388180791297",
+    "Founding admin",
+    Date.now(),
+  );
+}
+
+const PACK_CATEGORY_CHECK =
+  "('roleplay','coding','math','research','marketing','poster','story','judging','general','other')";
+
+/** Allow more than one task of the same type on a custom pack. */
+function migration008(db: Database): void {
+  db.exec(`
+    CREATE TABLE tasks_new (
+      id            TEXT PRIMARY KEY,
+      bundle_id     TEXT NOT NULL REFERENCES bundles(id),
+      category      TEXT NOT NULL
+                    CHECK (category IN ('roleplay','coding','math','research',
+                                        'marketing','poster','story','judging')),
+      wrapper       TEXT NOT NULL,
+      task_body     TEXT NOT NULL,
+      judge_prompt  TEXT NOT NULL,
+      output_schema TEXT NOT NULL,
+      token_limit   INTEGER NOT NULL,
+      weight        REAL NOT NULL DEFAULT 1.0,
+      must_mention_json TEXT NOT NULL DEFAULT '[]'
+    );
+
+    INSERT INTO tasks_new (
+      id, bundle_id, category, wrapper, task_body, judge_prompt,
+      output_schema, token_limit, weight, must_mention_json
+    )
+    SELECT
+      id, bundle_id, category, wrapper, task_body, judge_prompt,
+      output_schema, token_limit, weight, must_mention_json
+    FROM tasks;
+
+    DROP TABLE tasks;
+    ALTER TABLE tasks_new RENAME TO tasks;
+
+    CREATE INDEX idx_tasks_bundle ON tasks(bundle_id);
+    CREATE INDEX idx_tasks_bundle_category ON tasks(bundle_id, category);
+  `);
+}
+
+/** Catch-all pack types: general and other. Official Octant/Keel stay on eight. */
+function migration009(db: Database): void {
+  db.exec(`
+    CREATE TABLE tasks_new (
+      id            TEXT PRIMARY KEY,
+      bundle_id     TEXT NOT NULL REFERENCES bundles(id),
+      category      TEXT NOT NULL
+                    CHECK (category IN ${PACK_CATEGORY_CHECK}),
+      wrapper       TEXT NOT NULL,
+      task_body     TEXT NOT NULL,
+      judge_prompt  TEXT NOT NULL,
+      output_schema TEXT NOT NULL,
+      token_limit   INTEGER NOT NULL,
+      weight        REAL NOT NULL DEFAULT 1.0,
+      must_mention_json TEXT NOT NULL DEFAULT '[]'
+    );
+
+    INSERT INTO tasks_new (
+      id, bundle_id, category, wrapper, task_body, judge_prompt,
+      output_schema, token_limit, weight, must_mention_json
+    )
+    SELECT
+      id, bundle_id, category, wrapper, task_body, judge_prompt,
+      output_schema, token_limit, weight, must_mention_json
+    FROM tasks;
+
+    DROP TABLE tasks;
+    ALTER TABLE tasks_new RENAME TO tasks;
+
+    CREATE INDEX idx_tasks_bundle ON tasks(bundle_id);
+    CREATE INDEX idx_tasks_bundle_category ON tasks(bundle_id, category);
+
+    CREATE TABLE category_judge_panels_new (
+      run_id          TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      category        TEXT NOT NULL
+                      CHECK (category IN ${PACK_CATEGORY_CHECK}),
+      panel_seed      INTEGER NOT NULL,
+      judge_model_id  TEXT NOT NULL,
+      panel_position  INTEGER CHECK (panel_position IN (0,1,2)),
+      reserve_order   INTEGER,
+      PRIMARY KEY (run_id, category, judge_model_id),
+      CHECK ((panel_position IS NULL) != (reserve_order IS NULL))
+    );
+
+    INSERT INTO category_judge_panels_new (
+      run_id, category, panel_seed, judge_model_id, panel_position, reserve_order
+    )
+    SELECT
+      run_id, category, panel_seed, judge_model_id, panel_position, reserve_order
+    FROM category_judge_panels;
+
+    DROP TABLE category_judge_panels;
+    ALTER TABLE category_judge_panels_new RENAME TO category_judge_panels;
+
+    CREATE INDEX idx_cjp_run ON category_judge_panels(run_id);
+  `);
+}
+
 /** Append-only migration list. Never edit an applied migration — add a new one. */
 const MIGRATIONS: Migration[] = [
   { id: 1, name: "001_initial_schema", up: migration001 },
@@ -518,6 +684,10 @@ const MIGRATIONS: Migration[] = [
   { id: 3, name: "003_seed_keel_v1", up: migration003 },
   { id: 4, name: "004_chat_playground", up: migration004 },
   { id: 5, name: "005_chat_message_finish_reason", up: migration005 },
+  { id: 6, name: "006_users_and_custom_packs", up: migration006 },
+  { id: 7, name: "007_staff_and_site_traffic", up: migration007 },
+  { id: 8, name: "008_tasks_allow_duplicate_category", up: migration008 },
+  { id: 9, name: "009_pack_catch_all_categories", up: migration009 },
 ];
 
 function runMigrations(db: Database): void {
@@ -542,18 +712,30 @@ function runMigrations(db: Database): void {
     const migration = MIGRATIONS[i];
     if (!migration) continue;
 
-    const apply = db.transaction(() => {
-      migration.up(db);
-      db.prepare(
-        "INSERT INTO migrations (id, name, applied_at) VALUES (@id, @name, @applied_at)",
-      ).run({
-        id: migration.id,
-        name: migration.name,
-        applied_at: Date.now(),
+    // SQLite ignores PRAGMA foreign_keys inside a transaction. Rebuilds
+    // (drop/recreate) need FKs off around the apply() transaction.
+    db.pragma("foreign_keys = OFF");
+    try {
+      const apply = db.transaction(() => {
+        migration.up(db);
+        db.prepare(
+          "INSERT INTO migrations (id, name, applied_at) VALUES (@id, @name, @applied_at)",
+        ).run({
+          id: migration.id,
+          name: migration.name,
+          applied_at: Date.now(),
+        });
       });
-    });
 
-    apply();
+      apply();
+
+      const violations = db.pragma("foreign_key_check") as unknown[];
+      if (violations.length > 0) {
+        throw new Error(`Foreign key check failed after ${migration.name}`);
+      }
+    } finally {
+      db.pragma("foreign_keys = ON");
+    }
   }
 }
 

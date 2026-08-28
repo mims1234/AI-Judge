@@ -13,6 +13,8 @@ export type TaskCardData = {
   task_body: string;
   output_schema: string; // JSON string
   token_limit: number;
+  title?: string;
+  cardKey?: string;
 };
 
 function capitalize(s: string): string {
@@ -39,7 +41,8 @@ export function TaskCard({
 }) {
   const [tab, setTab] = useState("prompt");
   const validators = validatorsForCategory(task.category);
-  const idBase = `task-${task.category}`;
+  const idBase = `task-${task.cardKey ?? task.category}`;
+  const heading = task.title ?? capitalize(task.category);
 
   return (
     <article
@@ -56,7 +59,7 @@ export function TaskCard({
         className="flex flex-1 flex-col p-5 text-left"
       >
         <div className="flex items-center justify-between gap-2">
-          <h3 className="text-base text-bright">{capitalize(task.category)}</h3>
+          <h3 className="text-base text-bright">{heading}</h3>
           <span
             aria-hidden="true"
             className={cn("text-dim transition-transform duration-150", expanded && "rotate-90")}
@@ -89,7 +92,7 @@ export function TaskCard({
             ]}
             activeKey={tab}
             onChange={setTab}
-            ariaLabel={`${capitalize(task.category)} task details`}
+            ariaLabel={`${heading} task details`}
             idBase={idBase}
           />
 

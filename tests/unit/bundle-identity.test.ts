@@ -45,7 +45,7 @@ describe("bundle identity — Octant / mini-benchmark-v1 (plans/13)", () => {
 
   it("pins canonical content hash", () => {
     expect(computeContentHash()).toBe(
-      "1e48022acec0490191d61ffba3a1772a2700f07a521f92d17d58e2be1123fbdd",
+      "825e262c4771a1512da32bad7f2a071bd36ab1e18f8ab71e96e88f9610b5f05e",
     );
   });
 });
@@ -62,7 +62,7 @@ describe("bundle identity — Keel / keel-v1 (plans/13–14)", () => {
   it("pins a content hash different from Octant", () => {
     const keelHash = keelContentHash();
     expect(keelHash).toBe(
-      "44138b368f323c638c5d313c8d838c5ae57d29e32091ed9ac06b6ad6476be4f5",
+      "a57688b40ebafdfd2f0b8226a9583a1bfe69766f4cd5627c466a52a93994f0c6",
     );
     expect(keelHash).not.toBe(computeContentHash());
   });
