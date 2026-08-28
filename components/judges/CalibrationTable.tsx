@@ -25,9 +25,14 @@ export function CalibrationTable({ rows }: CalibrationTableProps) {
 
   if (rows.length === 0) {
     return (
-      <p className="rounded-md border border-dashed border-line-subtle px-3 py-4 text-sm text-dim">
-        No calibration fixtures run yet. Fixtures are optional in v1.
-      </p>
+      <div className="rounded-md border border-dashed border-line-subtle px-3 py-4">
+        <p className="text-sm text-body">No fixture runs recorded yet.</p>
+        <p className="mt-1 text-sm text-dim">
+          Calibration sends a small set of human-reviewed answers through a judge
+          to check whether it scores known-good and known-bad cases in the
+          expected range. It is optional and never changes candidate rankings.
+        </p>
+      </div>
     );
   }
 
@@ -53,6 +58,7 @@ export function CalibrationTable({ rows }: CalibrationTableProps) {
         activeKey={active}
         onChange={setActive}
         ariaLabel="Filter calibration by judge"
+        className="overflow-x-auto"
       />
 
       <div className="overflow-x-auto rounded-md border border-line-subtle bg-ink-900">

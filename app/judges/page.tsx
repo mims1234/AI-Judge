@@ -198,9 +198,16 @@ export default async function JudgesPage({
       )}
 
       <section aria-labelledby="calibration-heading" className="flex flex-col gap-3">
-        <h2 id="calibration-heading" className="text-sm uppercase tracking-wide text-dim">
-          Calibration results
-        </h2>
+        <div className="flex flex-col gap-1">
+          <h2 id="calibration-heading" className="text-sm uppercase tracking-wide text-dim">
+            Calibration results
+          </h2>
+          <p className="max-w-3xl text-sm text-dim">
+            Optional fixture check: did this judge score known answers the way a
+            human reviewer expected? Separate from the rollups above, and unused
+            for candidate rankings.
+          </p>
+        </div>
         <CalibrationTable rows={calibration} />
       </section>
     </div>

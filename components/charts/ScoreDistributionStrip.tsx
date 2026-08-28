@@ -23,7 +23,7 @@ const TONE_BG: Record<NonNullable<ScoreDistributionStripProps["marks"][number]["
 export function ScoreDistributionStrip({
   marks,
   median,
-  width = 160,
+  width,
   ariaLabel,
   className,
 }: ScoreDistributionStripProps) {
@@ -33,8 +33,8 @@ export function ScoreDistributionStrip({
     <div
       role="img"
       aria-label={ariaLabel}
-      className={cn("relative h-5", className)}
-      style={{ width }}
+      className={cn("relative h-5 w-full", className)}
+      style={width != null ? { width } : undefined}
     >
       <div className="absolute top-1/2 left-0 right-0 h-0.5 -translate-y-1/2 rounded-full bg-ink-700" />
       {median != null && (

@@ -73,7 +73,7 @@ export function Tabs({ tabs, activeKey, onChange, ariaLabel, className, idBase }
             onClick={() => onChange(tab.key)}
             onKeyDown={(e) => onKeyDown(e, rovingIndex)}
             className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-sm transition-colors duration-150",
+              "-mb-px shrink-0 border-b-2 px-3 py-2 text-sm whitespace-nowrap transition-colors duration-150",
               active
                 ? "border-teal-400 text-bright"
                 : "border-transparent text-dim hover:text-body",

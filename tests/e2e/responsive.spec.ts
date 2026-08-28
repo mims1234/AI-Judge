@@ -10,7 +10,7 @@ for (const vp of VIEWPORTS) {
   test.describe(`responsive ${vp.name} (${vp.width})`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    for (const path of ["/", "/run?demo=1", "/leaderboard?demo=1", "/models?demo=1"]) {
+    for (const path of ["/", "/run?demo=1", "/leaderboard?demo=1", "/judges?demo=1", "/models?demo=1"]) {
       test(`no horizontal overflow on ${path}`, async ({ page }) => {
         await page.goto(path);
         const overflow = await page.evaluate(() => {

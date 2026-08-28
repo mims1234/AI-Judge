@@ -42,12 +42,12 @@ export function JudgeRowExpansion({ detail, judgeModelId }: JudgeRowExpansionPro
         <div className="flex flex-col gap-2">
           <ScoreDistributionStrip
             marks={marks}
-            width={320}
+            className="w-full max-w-[320px]"
             ariaLabel={`Recent overalls for ${modelShort(judgeModelId)}`}
           />
           <ScoreDistributionStrip
             marks={panelMarks}
-            width={320}
+            className="w-full max-w-[320px]"
             ariaLabel={`Panel medians alongside ${modelShort(judgeModelId)}`}
           />
         </div>

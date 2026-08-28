@@ -78,8 +78,9 @@ export function DataTable<T>({
                       : undefined
                   }
                   className={cn(
-                    "px-3 py-2 text-xs font-normal uppercase tracking-wide text-dim",
-                    (col.align === "right" || col.mono) && "text-right",
+                    "whitespace-nowrap px-3 py-2 text-xs font-normal uppercase tracking-wide text-dim",
+                    col.align === "right" || col.mono ? "text-right" : "text-left",
+                    col.className,
                   )}
                 >
                   {col.sortable ? (
@@ -204,9 +205,9 @@ function DataRow<T>({
           <td
             key={col.key}
             className={cn(
-              "px-3 py-2 text-sm text-body",
-              col.mono && "text-right font-mono tabular-nums",
-              col.align === "right" && "text-right",
+              "px-3 py-2 align-middle text-sm text-body",
+              col.mono && "font-mono tabular-nums",
+              col.align === "right" || col.mono ? "text-right" : "text-left",
               col.className,
             )}
           >
