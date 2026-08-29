@@ -97,9 +97,18 @@ export function TrendChart({
         points.map((p) => `L${p.x},${p.yViews}`).join(" ") +
         ` L${points[points.length - 1]!.x},${pad.top + innerH} Z`;
 
-  const axisLabel = (day: string) =>
-    monthly ? (spanYears ? formatMonth(day) : formatMonth(day).slice(0, 3)) : formatDay(day, true);
-  const hoverLabel = (day: string) => (monthly ? formatMonth(day) : formatDay(day, false));
+  const axisLabel = (point: TrafficSeriesPoint) => {
+    const base = monthly
+      ? spanYears
+        ? formatMonth(point.day)
+        : formatMonth(point.day).slice(0, 3)
+      : formatDay(point.day, true);
+    return point.partial ? `${base}*` : base;
+  };
+  const hoverLabel = (point: TrafficSeriesPoint) => {
+    const base = monthly ? formatMonth(point.day) : formatDay(point.day, false);
+    return point.partial ? `${base} (partial)` : base;
+  };
 
   return (
     <div className={cn("rounded-md border border-line-subtle bg-ink-900 p-4", className)}>
@@ -110,7 +119,7 @@ export function TrendChart({
           </h2>
           <p className="text-xs text-dim">
             {monthly
-              ? "Monthly page views and unique visitors (UTC)"
+              ? "Monthly page views and unique visitors (UTC). * = partial month."
               : "Daily page views and unique visitors (UTC)"}
           </p>
         </div>
@@ -192,7 +201,7 @@ export function TrendChart({
                   fontSize="10"
                   fontFamily="var(--font-mono)"
                 >
-                  {axisLabel(p.day)}
+                  {axisLabel(p)}
                 </text>
               );
             })}
@@ -233,7 +242,7 @@ export function TrendChart({
                         onMouseLeave={() => setHover(null)}
                       >
                         <title>
-                          {`${hoverLabel(p.day)}: ${p.views} views, ${p.uniques} unique`}
+                          {`${hoverLabel(p)}: ${p.views} views, ${p.uniques} unique`}
                         </title>
                       </rect>
                     </g>
@@ -297,7 +306,7 @@ export function TrendChart({
               className="pointer-events-none absolute right-4 top-0 rounded-md border border-line-strong bg-ink-850 px-3 py-2 text-xs shadow-raised"
               role="status"
             >
-              <div className="font-mono text-dim">{hoverLabel(active.day)}</div>
+              <div className="font-mono text-dim">{hoverLabel(active)}</div>
               <div className="mt-1 tabular-nums text-teal-300">
                 {active.views.toLocaleString()} views
               </div>
@@ -321,7 +330,10 @@ export function TrendChart({
         <tbody>
           {series.map((p) => (
             <tr key={p.day}>
-              <td>{monthly ? formatMonth(p.day) : p.day}</td>
+              <td>
+                {monthly ? formatMonth(p.day) : p.day}
+                {p.partial ? " (partial)" : ""}
+              </td>
               <td>{p.views}</td>
               <td>{p.uniques}</td>
             </tr>

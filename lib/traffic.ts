@@ -23,7 +23,6 @@ const ALLOWED_ROOTS = new Set([
   "compare",
   "judges",
   "settings",
-  "admin",
 ]);
 
 export function isTrafficRangeDays(n: number): n is TrafficRangeDays {
@@ -63,10 +62,29 @@ export function eachUtcMonth(from: string, to: string): string[] {
   return out;
 }
 
+/** First UTC day of `YYYY-MM`. */
+export function utcMonthStart(month: string): string {
+  return `${month}-01`;
+}
+
+/** Last UTC day of `YYYY-MM`. */
+export function utcMonthEnd(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  if (!y || !m) return utcMonthStart(month);
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+}
+
+/** True when `[from, to]` does not cover the full calendar month. */
+export function monthIsPartial(month: string, from: string, to: string): boolean {
+  return from > utcMonthStart(month) || to < utcMonthEnd(month);
+}
+
 export type TrafficSeriesPoint = {
   day: string;
   views: number;
   uniques: number;
+  /** Monthly bucket that does not cover the full calendar month. */
+  partial?: boolean;
 };
 
 export type TrafficPathRow = {
@@ -88,10 +106,20 @@ export type TrafficStats = {
     views: number;
     uniques: number;
   };
+  /** Current window through yesterday — used for period deltas. */
+  through_yesterday: {
+    views: number;
+    uniques: number;
+  };
   previous: {
     views: number;
     uniques: number;
     complete: boolean;
+  };
+  /** Hits rejected by the visitor/global rate limit (not debounce). */
+  limited: {
+    today: number;
+    window: number;
   };
   series: TrafficSeriesPoint[];
   paths: TrafficPathRow[];
@@ -121,7 +149,7 @@ export function eachUtcDay(from: string, to: string): string[] {
 }
 
 export function isBotUserAgent(ua: string | null | undefined): boolean {
-  if (!ua) return false;
+  if (!ua || !ua.trim()) return true;
   return BOT_UA_RE.test(ua);
 }
 
@@ -134,7 +162,15 @@ export function privacyDeniedFromHeaders(
   return gpc === "1";
 }
 
-/** When Origin/Referer is present, it must match this Host. */
+/** Cookie + write gates shared by the beacon route. */
+export function shouldTrackRequest(request: Request): boolean {
+  if (privacyDeniedFromHeaders(request.headers)) return false;
+  if (!isFirstPartyRequest(request)) return false;
+  if (isBotUserAgent(request.headers.get("user-agent"))) return false;
+  return true;
+}
+
+/** Origin or Referer must be present and match this Host. */
 export function isFirstPartyRequest(request: Request): boolean {
   const host = request.headers.get("host")?.toLowerCase();
   if (!host) return false;
@@ -152,7 +188,7 @@ export function isFirstPartyRequest(request: Request): boolean {
   if (fromOrigin != null) return fromOrigin;
   const fromReferer = check(referer);
   if (fromReferer != null) return fromReferer;
-  return true;
+  return false;
 }
 
 function isAllowedMappedPath(parts: string[]): boolean {

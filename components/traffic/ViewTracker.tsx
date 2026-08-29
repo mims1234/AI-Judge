@@ -11,38 +11,46 @@ function privacyBlocked(): boolean {
   return false;
 }
 
+function sendHit(path: string): void {
+  const body = JSON.stringify({ path });
+  const blob = new Blob([body], { type: "application/json" });
+  let queued = false;
+  try {
+    if (typeof navigator.sendBeacon === "function") {
+      queued = navigator.sendBeacon("/api/traffic/hit", blob);
+    }
+  } catch {
+    queued = false;
+  }
+  if (queued) return;
+  void fetch("/api/traffic/hit", {
+    method: "POST",
+    body,
+    headers: { "content-type": "application/json" },
+    keepalive: true,
+  }).catch(() => {
+    // analytics is best-effort
+  });
+}
+
 /** First-party pageview beacon. Daily rollups only — no query strings, no PII. */
 export function ViewTracker() {
   const pathname = usePathname();
   const last = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!pathname || last.current === pathname) return;
-    if (privacyBlocked()) return;
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-      return;
-    }
-    last.current = pathname;
+    if (!pathname || privacyBlocked()) return;
 
-    const body = JSON.stringify({ path: pathname });
-    const blob = new Blob([body], { type: "application/json" });
-    let queued = false;
-    try {
-      if (typeof navigator.sendBeacon === "function") {
-        queued = navigator.sendBeacon("/api/traffic/hit", blob);
-      }
-    } catch {
-      queued = false;
-    }
-    if (queued) return;
-    void fetch("/api/traffic/hit", {
-      method: "POST",
-      body,
-      headers: { "content-type": "application/json" },
-      keepalive: true,
-    }).catch(() => {
-      // analytics is best-effort
-    });
+    const sendIfVisible = () => {
+      if (document.visibilityState === "hidden") return;
+      if (last.current === pathname) return;
+      last.current = pathname;
+      sendHit(pathname);
+    };
+
+    sendIfVisible();
+    document.addEventListener("visibilitychange", sendIfVisible);
+    return () => document.removeEventListener("visibilitychange", sendIfVisible);
   }, [pathname]);
 
   return null;

@@ -5,7 +5,7 @@ import {
   newVisitorToken,
   recordHitFromRequest,
 } from "@/lib/server/traffic";
-import { readCookie, VISITOR_COOKIE } from "@/lib/traffic";
+import { readCookie, shouldTrackRequest, VISITOR_COOKIE } from "@/lib/traffic";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +35,7 @@ function emptyHit(): NextResponse {
  */
 export async function POST(request: Request) {
   const visitor = visitorFromRequest(request);
+  let tracked = false;
   try {
     const rawText = await request.text();
     if (rawText.length > 0 && rawText.length <= MAX_BODY_BYTES) {
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
       }
       const parsed = BodySchema.safeParse(raw);
       if (parsed.success) {
+        tracked = shouldTrackRequest(request);
         recordHitFromRequest(
           request,
           parsed.data.path,
@@ -58,7 +60,7 @@ export async function POST(request: Request) {
   }
 
   const res = emptyHit();
-  if (visitor.fresh) {
+  if (visitor.fresh && tracked) {
     res.cookies.set({
       name: VISITOR_COOKIE,
       value: visitor.token,

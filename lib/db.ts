@@ -695,6 +695,16 @@ function migration010(db: Database): void {
   `);
 }
 
+/** Daily count of traffic hits dropped by the rate limiter. */
+function migration011(db: Database): void {
+  db.exec(`
+    CREATE TABLE site_limited (
+      day  TEXT PRIMARY KEY,
+      hits INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+}
+
 /** Append-only migration list. Never edit an applied migration — add a new one. */
 const MIGRATIONS: Migration[] = [
   { id: 1, name: "001_initial_schema", up: migration001 },
@@ -707,6 +717,7 @@ const MIGRATIONS: Migration[] = [
   { id: 8, name: "008_tasks_allow_duplicate_category", up: migration008 },
   { id: 9, name: "009_pack_catch_all_categories", up: migration009 },
   { id: 10, name: "010_user_bundles_only", up: migration010 },
+  { id: 11, name: "011_site_limited", up: migration011 },
 ];
 
 function runMigrations(db: Database): void {

@@ -20,7 +20,6 @@ import {
 
 function formatCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 10_000) return `${Math.round(n / 1000)}K`;
   return n.toLocaleString();
 }
 
@@ -30,11 +29,11 @@ function deltaLabel(
   complete: boolean,
 ): string {
   if (!complete) return "prior window incomplete";
-  if (previous <= 0 && current <= 0) return "vs prior window";
-  if (previous <= 0) return "new vs prior window";
+  if (previous <= 0 && current <= 0) return "vs prior complete days";
+  if (previous <= 0) return "new vs prior complete days";
   const pct = ((current - previous) / previous) * 100;
   const sign = pct > 0 ? "+" : "";
-  return `${sign}${pct.toFixed(0)}% vs prior window`;
+  return `${sign}${pct.toFixed(0)}% vs prior complete days`;
 }
 
 export function AdminDashboard({
@@ -79,13 +78,17 @@ export function AdminDashboard({
       });
       if (gen !== rangeGen.current) return;
       if (!res.ok) {
+        setRange(stats.days);
         setError("Could not refresh traffic.");
         return;
       }
-      setStats((await res.json()) as TrafficStats);
+      const next = (await res.json()) as TrafficStats;
+      setStats(next);
+      setRange(next.days);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       if (gen !== rangeGen.current) return;
+      setRange(stats.days);
       setError("Could not refresh traffic.");
     } finally {
       if (gen === rangeGen.current) setLoading(false);
@@ -99,6 +102,12 @@ export function AdminDashboard({
     void loadStats(days);
   };
 
+  const shownDays = stats.days;
+  const compared = stats.through_yesterday ?? {
+    views: stats.totals.views,
+    uniques: stats.totals.uniques,
+  };
+  const limited = stats.limited ?? { today: 0, window: 0 };
   const pathMax = Math.max(1, ...stats.paths.map((p) => p.views));
 
   return (
@@ -110,6 +119,7 @@ export function AdminDashboard({
           </h1>
           <p className="mt-1 text-sm text-dim">
             Site traffic from first-party daily rollups — no raw pageview log.
+            Comparisons use complete UTC days (through yesterday).
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -141,6 +151,14 @@ export function AdminDashboard({
         </p>
       )}
 
+      {limited.window > 0 && (
+        <p role="status" className="text-sm text-warn-400">
+          {formatCount(limited.window)} hit{limited.window === 1 ? "" : "s"} limited
+          in this window ({formatCount(limited.today)} today). Totals undercount
+          those.
+        </p>
+      )}
+
       <div
         className={cn(
           "grid gap-3 sm:grid-cols-2 xl:grid-cols-4",
@@ -154,19 +172,19 @@ export function AdminDashboard({
           tone="accent"
         />
         <StatCard
-          label={`${range}-day views`}
+          label={`${shownDays}-day views`}
           value={formatCount(stats.totals.views)}
           sub={deltaLabel(
-            stats.totals.views,
+            compared.views,
             stats.previous.views,
             stats.previous.complete,
           )}
         />
         <StatCard
-          label={`${range}-day unique`}
+          label={`${shownDays}-day unique`}
           value={formatCount(stats.totals.uniques)}
           sub={deltaLabel(
-            stats.totals.uniques,
+            compared.uniques,
             stats.previous.uniques,
             stats.previous.complete,
           )}

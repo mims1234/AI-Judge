@@ -7,11 +7,14 @@ import {
 import {
   addUtcDays,
   eachUtcMonth,
+  isBotUserAgent,
   isFirstPartyRequest,
+  monthIsPartial,
   normalizePath,
   privacyDeniedFromHeaders,
   readCookie,
   seriesGrainForDays,
+  shouldTrackRequest,
   utcDay,
 } from "@/lib/traffic";
 import { createTestDb, type TestDb } from "@/tests/integration/helpers/test-db";
@@ -38,6 +41,7 @@ describe("traffic path collapse", () => {
     expect(normalizePath("/wp-admin")).toBeNull();
     expect(normalizePath("/bundles/secret-dump")).toBeNull();
     expect(normalizePath("/runs/not-an-id/extra")).toBeNull();
+    expect(normalizePath("/admin")).toBeNull();
     expect(normalizePath("/admin/users")).toBeNull();
   });
 
@@ -45,6 +49,10 @@ describe("traffic path collapse", () => {
     expect(privacyDeniedFromHeaders(new Headers({ dnt: "1" }))).toBe(true);
     expect(privacyDeniedFromHeaders(new Headers({ "sec-gpc": "1" }))).toBe(true);
     expect(privacyDeniedFromHeaders(new Headers())).toBe(false);
+    expect(isBotUserAgent(null)).toBe(true);
+    expect(isBotUserAgent("  ")).toBe(true);
+    expect(isBotUserAgent("Mozilla/5.0")).toBe(false);
+    expect(isBotUserAgent("GPTBot/1.0")).toBe(true);
     expect(
       isFirstPartyRequest(
         new Request("http://localhost:3000/api/traffic/hit", {
@@ -58,9 +66,47 @@ describe("traffic path collapse", () => {
     expect(
       isFirstPartyRequest(
         new Request("http://localhost:3000/api/traffic/hit", {
+          headers: { host: "localhost:3000" },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isFirstPartyRequest(
+        new Request("http://localhost:3000/api/traffic/hit", {
+          headers: {
+            host: "localhost:3000",
+            referer: "http://localhost:3000/models",
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isFirstPartyRequest(
+        new Request("http://localhost:3000/api/traffic/hit", {
           headers: {
             host: "localhost:3000",
             origin: "http://localhost:3000",
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldTrackRequest(
+        new Request("http://localhost:3000/api/traffic/hit", {
+          headers: {
+            host: "localhost:3000",
+            origin: "http://localhost:3000",
+          },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      shouldTrackRequest(
+        new Request("http://localhost:3000/api/traffic/hit", {
+          headers: {
+            host: "localhost:3000",
+            origin: "http://localhost:3000",
+            "user-agent": "Mozilla/5.0",
           },
         }),
       ),
@@ -121,6 +167,9 @@ describe("traffic rollups", () => {
     expect(stats.series[0]?.day).toBe(addUtcDays(utcDay(today), -6));
     expect(stats.totals.views).toBe(2);
     expect(stats.totals.uniques).toBe(1);
+    expect(stats.through_yesterday.views).toBe(1);
+    expect(stats.through_yesterday.uniques).toBe(1);
+    expect(stats.limited.window).toBe(0);
   });
 
   it("debounces the same visitor and path", () => {
@@ -172,7 +221,43 @@ describe("traffic rollups", () => {
     const august = stats.series.find((p) => p.day.startsWith("2026-08"));
     expect(august?.views).toBe(3);
     expect(august?.uniques).toBe(2);
+    expect(august?.partial).toBe(true);
+    const june = stats.series.find((p) => p.day.startsWith("2026-06"));
+    expect(june?.partial).toBe(false);
+    const may = stats.series.find((p) => p.day.startsWith("2026-05"));
+    expect(may?.partial).toBe(true);
     expect(stats.totals.uniques).toBe(2);
+  });
+
+  it("compares complete days and does not let one visitor starve others", () => {
+    tdb = createTestDb();
+    resetTrafficLimiterForTests({ visitorMaxHits: 2 });
+    const at = Date.parse("2026-08-10T12:00:00.000Z");
+    const earlier = Date.parse("2026-08-08T12:00:00.000Z");
+
+    expect(recordHit({ path: "/", visitorHash: "old", at: earlier }).recorded).toBe(
+      true,
+    );
+    resetTrafficLimiterForTests({ visitorMaxHits: 2 });
+    expect(recordHit({ path: "/", visitorHash: "v", at }).recorded).toBe(true);
+    expect(recordHit({ path: "/models", visitorHash: "v", at: at + 10 }).recorded).toBe(
+      true,
+    );
+    expect(recordHit({ path: "/bundles", visitorHash: "v", at: at + 20 }).recorded).toBe(
+      false,
+    );
+    expect(recordHit({ path: "/", visitorHash: "other", at: at + 30 }).recorded).toBe(
+      true,
+    );
+
+    const stats = getTrafficStats(7, at);
+    expect(stats.today.views).toBe(3);
+    expect(stats.today.uniques).toBe(2);
+    expect(stats.totals.views).toBe(4);
+    expect(stats.through_yesterday.views).toBe(1);
+    expect(stats.limited.today).toBe(1);
+    expect(stats.limited.window).toBe(1);
+    expect(stats.previous.complete).toBe(true);
   });
 });
 
@@ -196,5 +281,12 @@ describe("traffic grain helpers", () => {
       "2026-02",
     ]);
     expect(eachUtcMonth("2026-08-01", "2026-08-28")).toEqual(["2026-08"]);
+  });
+
+  it("marks calendar months that the window does not fully cover", () => {
+    expect(monthIsPartial("2026-05", "2026-05-31", "2026-08-28")).toBe(true);
+    expect(monthIsPartial("2026-06", "2026-05-31", "2026-08-28")).toBe(false);
+    expect(monthIsPartial("2026-08", "2026-05-31", "2026-08-28")).toBe(true);
+    expect(monthIsPartial("2026-08", "2026-08-01", "2026-08-31")).toBe(false);
   });
 });
