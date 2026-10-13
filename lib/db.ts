@@ -705,6 +705,17 @@ function migration011(db: Database): void {
   `);
 }
 
+/**
+ * Chat sessions get an owner, so only the person who started a chat (or
+ * staff) can add turns or re-judge it. Older rows keep a NULL owner.
+ */
+function migration012(db: Database): void {
+  db.exec(`
+    ALTER TABLE chat_sessions ADD COLUMN user_id TEXT REFERENCES users(id);
+    CREATE INDEX idx_chat_sessions_user ON chat_sessions(user_id);
+  `);
+}
+
 /** Append-only migration list. Never edit an applied migration — add a new one. */
 const MIGRATIONS: Migration[] = [
   { id: 1, name: "001_initial_schema", up: migration001 },
@@ -718,6 +729,7 @@ const MIGRATIONS: Migration[] = [
   { id: 9, name: "009_pack_catch_all_categories", up: migration009 },
   { id: 10, name: "010_user_bundles_only", up: migration010 },
   { id: 11, name: "011_site_limited", up: migration011 },
+  { id: 12, name: "012_chat_session_owner", up: migration012 },
 ];
 
 function runMigrations(db: Database): void {

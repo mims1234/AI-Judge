@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    await requireSession(request);
+    const user = await requireSession(request);
     const userKey = getKeyFromRequest(request);
     if (!hasApiKey(userKey)) {
       return needsKeyError(
@@ -73,13 +73,14 @@ export async function POST(request: Request) {
     prepare(
       `INSERT INTO chat_sessions (
         id, candidate_model_id, judge_pool_json, status, judging_rounds,
-        total_cost_usd, last_event_id, created_at
-      ) VALUES (?, ?, ?, 'active', 0, 0, 0, ?)`,
+        total_cost_usd, last_event_id, created_at, user_id
+      ) VALUES (?, ?, ?, 'active', 0, 0, 0, ?, ?)`,
     ).run(
       sessionId,
       body.candidate_model_id,
       JSON.stringify(body.judge_pool_model_ids),
       Date.now(),
+      user.id,
     );
 
     return Response.json(

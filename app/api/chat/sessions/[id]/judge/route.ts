@@ -4,10 +4,9 @@ import {
   needsKeyError,
 } from "@/lib/api-helpers";
 import { getChatEngine, isChatStateError } from "@/lib/chat-engine";
-import { prepare } from "@/lib/db";
 import { hasApiKey } from "@/lib/openrouter";
+import { requireChatControl } from "@/lib/server/chatControl";
 import { mapThrownApiError } from "@/lib/server/httpErrors";
-import { requireSession } from "@/lib/server/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,18 +15,11 @@ type Params = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, ctx: Params) {
   try {
-    await requireSession(request);
     const { id } = await ctx.params;
+    await requireChatControl(request, id);
     const userKey = getKeyFromRequest(request);
     if (!hasApiKey(userKey)) {
       return needsKeyError("Add your OpenRouter API key to judge.");
-    }
-
-    const session = prepare(
-      `SELECT id FROM chat_sessions WHERE id = ?`,
-    ).get(id) as { id: string } | undefined;
-    if (!session) {
-      return apiError("SESSION_NOT_FOUND", 404, `No chat session with id ${id}`);
     }
 
     try {

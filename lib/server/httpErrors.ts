@@ -30,6 +30,9 @@ export function mapThrownApiError(err: unknown): NextResponse {
   if (code === "RUN_NOT_FOUND") {
     return apiError("RUN_NOT_FOUND", 404, message);
   }
+  if (code === "SESSION_NOT_FOUND") {
+    return apiError("SESSION_NOT_FOUND", 404, message);
+  }
   if (code === "SAFETY_REFUSED") {
     return apiError("SAFETY_REFUSED", 400, message);
   }
