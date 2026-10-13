@@ -7,7 +7,11 @@ export type MockBehavior =
   | { kind: "sse"; fixtureRelPath: string; chunkBytes?: number; delayMs?: number }
   | { kind: "status"; status: number; body?: string; headers?: Record<string, string> }
   | { kind: "hang"; ms: number }
-  | { kind: "drop" };
+  | { kind: "drop" }
+  /** Stream this text as SSE content deltas (no fixture file needed). */
+  | { kind: "text"; text: string; chunkBytes?: number; delayMs?: number }
+  /** One step per matching request, in order; the last step repeats. */
+  | { kind: "sequence"; steps: MockBehavior[] };
 
 export type RouteMatcher = {
   /** Match when request body JSON includes this substring (model id, role, etc.). */
@@ -73,6 +77,36 @@ async function writeSse(
   return aborted ? "aborted" : "ok";
 }
 
+/** Build an OpenRouter-style SSE body from plain text. */
+function sseFromText(text: string): Buffer {
+  const frames: string[] = [": keepalive", ""];
+  for (let i = 0; i < text.length; i += 8) {
+    frames.push(
+      `data: ${JSON.stringify({
+        choices: [{ delta: { content: text.slice(i, i + 8) }, index: 0 }],
+        usage: null,
+      })}`,
+      "",
+    );
+  }
+  frames.push(
+    `data: ${JSON.stringify({
+      choices: [{ delta: {}, finish_reason: "stop", index: 0 }],
+      usage: {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        cost: 0.001,
+      },
+    })}`,
+    "",
+    "data: [DONE]",
+    "",
+    "",
+  );
+  return Buffer.from(frames.join("\n"), "utf8");
+}
+
 function pickBehavior(
   routes: RouteMatcher[],
   defaultChat: MockBehavior,
@@ -106,6 +140,7 @@ export async function startMockOpenRouter(
     fixtureRelPath: "sse/candidate-stream-happy.sse",
   };
   const requests: MockOpenRouter["requests"] = [];
+  const sequenceCursor = new WeakMap<object, number>();
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://127.0.0.1`);
@@ -137,7 +172,15 @@ export async function startMockOpenRouter(
       }
 
       if (req.method === "POST" && url.pathname.includes("/chat/completions")) {
-        const behavior = pickBehavior(routes, defaultChat, body);
+        let behavior = pickBehavior(routes, defaultChat, body);
+        while (behavior.kind === "sequence") {
+          const at = sequenceCursor.get(behavior) ?? 0;
+          sequenceCursor.set(behavior, at + 1);
+          const step =
+            behavior.steps[Math.min(at, behavior.steps.length - 1)];
+          if (!step) throw new Error("empty mock sequence");
+          behavior = step;
+        }
 
         if (behavior.kind === "status") {
           res.writeHead(behavior.status, {
@@ -164,7 +207,10 @@ export async function startMockOpenRouter(
           return;
         }
 
-        const buf = readFixture(behavior.fixtureRelPath);
+        const buf =
+          behavior.kind === "text"
+            ? sseFromText(behavior.text)
+            : readFixture(behavior.fixtureRelPath);
         await writeSse(
           res,
           buf,

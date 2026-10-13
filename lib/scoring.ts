@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { findModelMention } from "@/lib/blind";
 import { withJudgeEnglishOnly } from "@/lib/bundles/judge-language";
 import { getDb, prepare } from "@/lib/db";
 import { getCachedModel, streamChat } from "@/lib/openrouter";
@@ -772,23 +773,11 @@ export function judgeMetaScore(
   findings: ValidatorFinding[],
 ): number {
   const parseStatus = String(attempt.parse_status ?? "invalid");
-  const isSubstitute = Number(attempt.is_substitute ?? 0) === 1;
-  const substitutedAway =
-    isSubstitute && parseStatus === "invalid"
-      ? false
-      : // this judge was replaced: indicated by another attempt with substituted_for = this judge
-        false;
 
-  // parse quality
+  // parse quality: first try 10, repaired 5, invalid 0
   let parseQuality = 0;
   if (parseStatus === "first_try") parseQuality = 10;
   else if (parseStatus === "repaired") parseQuality = 5;
-  else if (substitutedAway || parseStatus === "invalid") parseQuality = 0;
-
-  // If this attempt was the original that got replaced, calibration may still run on final.
-  // Plan: substituted-away (this judge's slot replaced for invalid JSON) = 0
-  // We detect via parse_status invalid on a non-final? For final invalid, 0.
-  if (parseStatus === "invalid") parseQuality = 0;
 
   const answer =
     typeof attempt.candidate_answer === "string"
@@ -1055,25 +1044,22 @@ export function evaluatePreflight(input: {
     }
   }
 
+  // Everything a judge reads besides the answer. The engine runs the same
+  // check before judging, so a pack that passes here is not excluded later.
   const leakBlob = includedTasks
-    .map((t) => `${t.wrapper}\n${t.task_body}\n${t.must_mention_json ?? ""}`)
+    .map(
+      (t) =>
+        `${t.wrapper}\n${t.task_body}\n${t.judge_prompt}\n${t.must_mention_json ?? ""}`,
+    )
     .join("\n");
   for (const id of input.candidate_model_ids) {
-    if (leakBlob.includes(id)) {
+    const mention = findModelMention(leakBlob, [id]);
+    if (mention) {
       errors.push({
         code: "BLIND_CONFLICT",
-        message: `Pack text contains candidate id ${id}`,
+        message: `Pack text names candidate model ${mention}`,
         details: { model_id: id },
       });
-    } else {
-      const suffix = id.includes("/") ? id.split("/").slice(1).join("/") : "";
-      if (suffix && leakBlob.includes(suffix)) {
-        errors.push({
-          code: "BLIND_CONFLICT",
-          message: `Pack text contains candidate suffix ${suffix}`,
-          details: { model_id: id },
-        });
-      }
     }
   }
   const maxTask = includedTasks.reduce(
@@ -1441,7 +1427,10 @@ export function queryJudgeRollups(bundleId?: string): Array<{
             AVG(server_overall) AS avg_score,
             AVG(calibration_score) AS mean_meta,
             AVG(ABS(COALESCE(claimed_overall,0) - COALESCE(server_overall,0))) AS mean_mismatch,
-            SUM(CASE WHEN parse_status != 'first_try' THEN 1 ELSE 0 END) AS parse_issues,
+            -- A failed call (evidence 'infra: ...') is not a parsing problem.
+            SUM(CASE WHEN parse_status != 'first_try'
+                      AND COALESCE(evidence, '') NOT LIKE 'infra:%'
+                     THEN 1 ELSE 0 END) AS parse_issues,
             SUM(CASE WHEN is_substitute = 1 THEN 1 ELSE 0 END) AS subs,
             COUNT(*) AS n
      FROM judgment_attempts

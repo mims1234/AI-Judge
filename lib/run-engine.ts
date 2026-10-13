@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import {
+  MODEL_NAMES_MASKED_NOTE,
+  findModelMention,
+  maskModelMentions,
+} from "@/lib/blind";
 import { withJudgeEnglishOnly } from "@/lib/bundles/judge-language";
 import { getDb, prepare } from "@/lib/db";
 import {
@@ -17,12 +22,15 @@ import {
 import {
   CATEGORY_ORDER,
   EPHEMERAL_SSE_EVENTS,
-  JudgeOutputSchema,
   judgeOutputJsonSchema,
   type Category,
   type JudgeOutput,
 } from "@/lib/schemas";
-import { getCallDeadlineMs, getMaxRetries } from "@/lib/server/appSettings";
+import {
+  getAppSettings,
+  getCallDeadlineMs,
+  getMaxRetries,
+} from "@/lib/server/appSettings";
 import {
   aggregateTask,
   estimateTaskCost,
@@ -80,10 +88,6 @@ export function selectPanels(
           (id, i) => i >= 3 && (id.split("/")[0] ?? id) !== crowdedPrefix,
         );
         if (swapIdx !== -1) {
-          const dupIdx = top3.findIndex(
-            (id) => (id.split("/")[0] ?? id) === crowdedPrefix,
-            1,
-          );
           // Swap the last crowded slot (prefer position 2) with later diverse judge
           let target = 2;
           if ((shuffled[2]!.split("/")[0] ?? "") !== crowdedPrefix) {
@@ -95,7 +99,6 @@ export function selectPanels(
             const tmp = shuffled[target]!;
             shuffled[target] = shuffled[swapIdx]!;
             shuffled[swapIdx] = tmp;
-            void dupIdx;
           }
         }
       }
@@ -127,10 +130,15 @@ export function selectPanels(
 
 type ControlBlock = {
   pauseRequested: boolean;
+  /** The paused status + notice were already written for this pause. */
+  pauseAnnounced: boolean;
   cancelRequested: boolean;
+  /**
+   * Work appeared while the executor was mid-pass (a task retry, or a resume
+   * before the run finished winding down): make one more pass before finalizing.
+   */
+  rerunRequested: boolean;
   abortController: AbortController;
-  resumeWaiters: Array<() => void>;
-  sentHashes: Map<string, string>;
 };
 
 type EngineEvent = {
@@ -185,10 +193,10 @@ class RunEngineImpl implements RunEngine {
     if (!c) {
       c = {
         pauseRequested: false,
+        pauseAnnounced: false,
         cancelRequested: false,
+        rerunRequested: false,
         abortController: new AbortController(),
-        resumeWaiters: [],
-        sentHashes: new Map(),
       };
       this.controls.set(runId, c);
     }
@@ -371,8 +379,15 @@ class RunEngineImpl implements RunEngine {
     }
     const ctrl = this.ensureControl(runId);
     ctrl.pauseRequested = false;
-    ctrl.abortController = new AbortController();
-    for (const w of ctrl.resumeWaiters.splice(0)) w();
+    ctrl.pauseAnnounced = false;
+    // Keep the controller unless it was used: in-flight calls hold its signal,
+    // and a later cancel must still be able to abort them.
+    if (ctrl.abortController.signal.aborted) {
+      ctrl.abortController = new AbortController();
+    }
+    // Resumed before the executor finished winding down to its checkpoint:
+    // workers that already stopped need one more pass.
+    if (this.activeRunId === runId) ctrl.rerunRequested = true;
 
     if (this.activeRunId && this.activeRunId !== runId) {
       this.setRunStatus(runId, "queued");
@@ -405,7 +420,6 @@ class RunEngineImpl implements RunEngine {
     const ctrl = this.ensureControl(runId);
     ctrl.cancelRequested = true;
     ctrl.abortController.abort();
-    for (const w of ctrl.resumeWaiters.splice(0)) w();
     this.queue = this.queue.filter((id) => id !== runId);
 
     if (run.status === "queued" || run.status === "paused") {
@@ -461,6 +475,11 @@ class RunEngineImpl implements RunEngine {
       }
     })();
 
+    // The executor may already be past this task; ask it for another pass so
+    // the retried row is not left pending when the run finalizes.
+    if (this.activeRunId === runId) {
+      this.ensureControl(runId).rerunRequested = true;
+    }
     this.enqueue(runId);
   }
 
@@ -587,9 +606,15 @@ class RunEngineImpl implements RunEngine {
     this.runKeys.delete(runId);
   }
 
-  private async waitIfPaused(runId: string): Promise<void> {
+  /**
+   * Write the paused status and notice once per pause. Workers call this when
+   * they reach a checkpoint with a pause pending, then stop; the executor
+   * returns and frees the worker slot instead of waiting for a resume.
+   */
+  private announcePause(runId: string): void {
     const ctrl = this.ensureControl(runId);
-    if (!ctrl.pauseRequested) return;
+    if (ctrl.pauseAnnounced) return;
+    ctrl.pauseAnnounced = true;
     this.setRunStatus(runId, "paused");
     this.emitRunStatus(runId, "paused");
     this.emitEvent(runId, "notice", {
@@ -598,17 +623,6 @@ class RunEngineImpl implements RunEngine {
       code: "RUN_PAUSED",
       message: "Run paused at checkpoint.",
     });
-    await new Promise<void>((resolve) => {
-      ctrl.resumeWaiters.push(resolve);
-    });
-  }
-
-  private checkControl(
-    runId: string,
-  ): "ok" | "cancel" | "budget" {
-    const ctrl = this.ensureControl(runId);
-    if (ctrl.cancelRequested) return "cancel";
-    return "ok";
   }
 
   private budgetWouldExceed(
@@ -630,36 +644,27 @@ class RunEngineImpl implements RunEngine {
     let run = this.getRun(runId);
     if (run.status === "paused") return;
     if (run.status === "cancelled") return;
-    if (
-      run.status === "completed" ||
-      run.status === "incomplete"
-    ) {
-      // retry path may have flipped to running already
-    }
 
-    // After a server restart the in-memory key map is empty. In production
-    // there is no env fallback — fail clearly so the operator re-runs.
+    // After a server restart the in-memory key map is empty and production has
+    // no env fallback. Park the run so the launcher can press Resume, which
+    // sends the key again — finishing it here would strand the remaining tasks.
     if (!this.resolveRunKey(runId)) {
-      if (run.status === "queued" || run.status === "running") {
-        this.setRunStatus(runId, "running");
-        this.emitRunStatus(runId, "running");
-      }
+      ctrl.pauseAnnounced = true;
+      this.setRunStatus(runId, "paused");
+      this.emitRunStatus(runId, "paused");
       this.emitEvent(runId, "notice", {
         runId,
         scope: "run",
         code: "NEEDS_KEY",
         message:
-          "API key is no longer available (server restart or missing key). Re-run from the wizard with your OpenRouter key.",
+          "Paused: the API key for this run is no longer on the server (restart or missing key). Press Resume to continue with your OpenRouter key.",
       });
-      this.finishTerminal(runId, "incomplete");
       return;
     }
 
     if (run.status === "queued" || run.status === "running") {
-      const fromPausedNotice = false;
       this.setRunStatus(runId, "running");
       this.emitRunStatus(runId, "running");
-      void fromPausedNotice;
     }
 
     run = this.getRun(runId);
@@ -667,7 +672,6 @@ class RunEngineImpl implements RunEngine {
       categories: Category[];
       trials_per_pair: number;
       candidate_concurrency: number;
-      candidate_temperature?: number;
       tasks: Array<
         TaskSnapshot & {
           id: string;
@@ -704,20 +708,23 @@ class RunEngineImpl implements RunEngine {
         const category = taskMeta.category;
         for (let trial = 0; trial < (params.trials_per_pair || 1); trial++) {
           if (ctrl.cancelRequested) return;
-          await this.waitIfPaused(runId);
-          if (ctrl.cancelRequested) return;
 
           const tr = prepare(
-            `SELECT * FROM task_results
+            `SELECT id, status FROM task_results
              WHERE run_id = ? AND task_id = ? AND candidate_model_id = ?
                AND trial_index = ?`,
           ).get(runId, taskMeta.id, candidateModelId, trial) as
-            | Record<string, unknown>
+            | { id: string; status: string }
             | undefined;
           if (!tr) continue;
+          if (tr.status === "scored" || tr.status === "error") continue;
 
-          const status = String(tr.status);
-          if (status === "scored" || status === "error") continue;
+          // Checkpoint: stop here when a pause is pending. Only reached with
+          // real work left, so a pause never parks a run that is already done.
+          if (ctrl.pauseRequested) {
+            this.announcePause(runId);
+            return;
+          }
 
           // Budget gate before dispatch
           const panelJudges = this.activePanel(runId, category).map(
@@ -744,27 +751,37 @@ class RunEngineImpl implements RunEngine {
             return;
           }
 
-          const control = this.checkControl(runId);
-          if (control === "cancel") return;
-
-          await this.runTask(runId, String(tr.id), taskMeta, candidateModelId);
+          try {
+            await this.runTask(runId, tr.id, taskMeta, candidateModelId);
+          } catch (err) {
+            // One broken task must not take the run (and the other workers)
+            // down with it. Record it and move on; it can be retried.
+            console.error("[run-engine] task failed unexpectedly", tr.id, err);
+            this.failTaskInternal(runId, tr.id, err);
+          }
         }
       }
     };
 
-    if (concurrency <= 1) {
-      for (const c of candidates) {
-        if (ctrl.cancelRequested || budgetStopped) break;
-        await runCandidate(c.model_id);
+    const runAllCandidates = async () => {
+      if (concurrency <= 1) {
+        for (const c of candidates) {
+          if (ctrl.cancelRequested || budgetStopped || ctrl.pauseRequested) {
+            break;
+          }
+          await runCandidate(c.model_id);
+        }
+        return;
       }
-    } else {
       const pool = [...candidates];
       const workers: Promise<void>[] = [];
       for (let i = 0; i < concurrency; i++) {
         workers.push(
           (async () => {
             while (pool.length > 0) {
-              if (ctrl.cancelRequested || budgetStopped) return;
+              if (ctrl.cancelRequested || budgetStopped || ctrl.pauseRequested) {
+                return;
+              }
               const next = pool.shift();
               if (!next) return;
               await runCandidate(next.model_id);
@@ -773,18 +790,77 @@ class RunEngineImpl implements RunEngine {
         );
       }
       await Promise.all(workers);
+    };
+
+    // A retry or an early resume can add work behind the workers' backs, so
+    // keep making passes until nothing asked for another one.
+    for (;;) {
+      ctrl.rerunRequested = false;
+      await runAllCandidates();
+      if (ctrl.cancelRequested || budgetStopped || ctrl.pauseRequested) break;
+      if (!ctrl.rerunRequested) break;
     }
 
     if (ctrl.cancelRequested) {
-      this.finishTerminal(runId, "cancelled");
+      // cancel() already finalized a run that was showing as paused.
+      if (this.getRun(runId).status !== "cancelled") {
+        this.finishTerminal(runId, "cancelled");
+      }
       return;
     }
 
     const prog = this.progress(runId);
+    const open = prog.total - prog.scored - prog.error;
+
+    if (ctrl.pauseRequested && !budgetStopped) {
+      if (open > 0) {
+        // Parked. Returning frees the worker slot for other runs; resume()
+        // puts this run back in the queue.
+        this.announcePause(runId);
+        return;
+      }
+      // Everything finished before any worker reached a checkpoint.
+      ctrl.pauseRequested = false;
+    }
+
     if (prog.scored === prog.total && prog.total > 0) {
       this.finishTerminal(runId, "completed");
     } else {
       this.finishTerminal(runId, "incomplete");
+    }
+  }
+
+  /** Mark a task as an excluded failure after an unexpected engine error. */
+  private failTaskInternal(
+    runId: string,
+    taskResultId: string,
+    err: unknown,
+  ): void {
+    const message = `internal error: ${err instanceof Error ? err.message : "unexpected failure"}`;
+    try {
+      prepare(
+        `UPDATE task_results SET status = 'error', error = ?, finished_at = ?
+         WHERE id = ? AND status NOT IN ('scored', 'error')`,
+      ).run(
+        JSON.stringify({ kind: "judging_failure", message }),
+        Date.now(),
+        taskResultId,
+      );
+      this.emitTaskStatus(runId, taskResultId, "error", {
+        kind: "judging_failure",
+        message,
+      });
+      this.emitEvent(runId, "notice", {
+        runId,
+        scope: "task",
+        code: "JUDGING_EXCLUDED",
+        message:
+          "Task excluded from scoring (internal error) — does not penalize the model. Retry to run it again.",
+        taskResultId,
+        details: { kind: "judging_failure", reason: "internal_error" },
+      });
+    } catch (inner) {
+      console.error("[run-engine] failTaskInternal failed", taskResultId, inner);
     }
   }
 
@@ -816,26 +892,6 @@ class RunEngineImpl implements RunEngine {
     }>;
   }
 
-  private assertBlind(
-    messages: Array<{ role: string; content: string }>,
-    candidateIds: string[],
-  ): void {
-    const blob = messages.map((m) => m.content).join("\n");
-    for (const id of candidateIds) {
-      if (blob.includes(id)) {
-        throw new Error(
-          `blindness assertion failed: candidate id ${id} found in judge messages`,
-        );
-      }
-      const suffix = id.includes("/") ? id.split("/").slice(1).join("/") : id;
-      if (suffix && blob.includes(suffix)) {
-        throw new Error(
-          `blindness assertion failed: candidate suffix ${suffix} found in judge messages`,
-        );
-      }
-    }
-  }
-
   private async runTask(
     runId: string,
     taskResultId: string,
@@ -851,49 +907,52 @@ class RunEngineImpl implements RunEngine {
     candidateModelId: string,
   ): Promise<void> {
     const ctrl = this.ensureControl(runId);
-    let row = prepare(`SELECT * FROM task_results WHERE id = ?`).get(
-      taskResultId,
-    ) as Record<string, unknown>;
+    const statusOf = (): string =>
+      (
+        prepare(`SELECT status FROM task_results WHERE id = ?`).get(
+          taskResultId,
+        ) as { status: string }
+      ).status;
+    /** True when the task should stop at this checkpoint (cancel or pause). */
+    const shouldStop = (): boolean => {
+      if (ctrl.cancelRequested) return true;
+      if (ctrl.pauseRequested) {
+        this.announcePause(runId);
+        return true;
+      }
+      return false;
+    };
+
+    let status = statusOf();
 
     // Resume helpers
-    if (row.status === "validating") {
+    if (status === "validating") {
       prepare(`DELETE FROM validator_results WHERE task_result_id = ?`).run(
         taskResultId,
       );
     }
-    if (row.status === "pending" || row.status === "streaming") {
+    if (status === "pending" || status === "streaming") {
       await this.phaseCandidate(
         runId,
         taskResultId,
         taskMeta,
         candidateModelId,
       );
-      row = prepare(`SELECT * FROM task_results WHERE id = ?`).get(
-        taskResultId,
-      ) as Record<string, unknown>;
-      if (row.status === "error") return;
+      status = statusOf();
+      if (status === "error") return;
     }
 
-    if (ctrl.pauseRequested) {
-      await this.waitIfPaused(runId);
-      if (ctrl.cancelRequested) return;
-    }
+    // The row keeps its phase status, so a paused task picks up where it left
+    // off on the next pass.
+    if (shouldStop()) return;
 
-    row = prepare(`SELECT * FROM task_results WHERE id = ?`).get(
-      taskResultId,
-    ) as Record<string, unknown>;
-    if (row.status === "validating" || row.status === "judging") {
-      if (row.status === "validating") {
-        await this.phaseValidate(runId, taskResultId, taskMeta);
-        row = prepare(`SELECT * FROM task_results WHERE id = ?`).get(
-          taskResultId,
-        ) as Record<string, unknown>;
-        if (row.status === "error") return;
-      }
-      if (ctrl.pauseRequested) {
-        await this.waitIfPaused(runId);
-        if (ctrl.cancelRequested) return;
-      }
+    if (status === "validating") {
+      await this.phaseValidate(runId, taskResultId, taskMeta);
+      status = statusOf();
+      if (status === "error") return;
+      if (shouldStop()) return;
+    }
+    if (status === "judging") {
       await this.phaseJudge(runId, taskResultId, taskMeta, candidateModelId);
     }
   }
@@ -1064,9 +1123,6 @@ class RunEngineImpl implements RunEngine {
         );
       }
       flushDelta(true);
-
-      // Idempotency map
-      ctrl.sentHashes.set(result.request_hash, taskResultId);
 
       const output_hash = createHash("sha256")
         .update(result.text)
@@ -1354,12 +1410,21 @@ class RunEngineImpl implements RunEngine {
     }));
     const validatorBlock = renderValidatorBlock(findingObjs);
 
-    // Skip slots that already have final judgments
+    // Skip slots that already have a final judgment. A slot also counts as
+    // done when a reserve answered in its place, so a resume after a crash
+    // does not ask the replaced judge again and end up with four verdicts.
     const existingFinals = prepare(
-      `SELECT judge_model_id FROM judgment_attempts
+      `SELECT judge_model_id, substituted_for FROM judgment_attempts
        WHERE task_result_id = ? AND is_final = 1`,
-    ).all(taskResultId) as Array<{ judge_model_id: string }>;
-    const doneJudges = new Set(existingFinals.map((j) => j.judge_model_id));
+    ).all(taskResultId) as Array<{
+      judge_model_id: string;
+      substituted_for: string | null;
+    }>;
+    const doneJudges = new Set<string>();
+    for (const j of existingFinals) {
+      doneJudges.add(j.judge_model_id);
+      if (j.substituted_for) doneJudges.add(j.substituted_for);
+    }
 
     let slots = this.resolvePanelForCandidate(
       runId,
@@ -1401,297 +1466,289 @@ class RunEngineImpl implements RunEngine {
       return;
     }
 
+    const slotJudgeIds = slots.map((s) => s.judge_model_id);
     slots = slots.filter((s) => !doneJudges.has(s.judge_model_id));
 
-    const allCandidates = prepare(
-      `SELECT model_id FROM run_candidates WHERE run_id = ?`,
-    ).all(runId) as Array<{ model_id: string }>;
+    const candidateIds = (
+      prepare(`SELECT model_id FROM run_candidates WHERE run_id = ?`).all(
+        runId,
+      ) as Array<{ model_id: string }>
+    ).map((c) => c.model_id);
 
+    // Pack text is screened at preflight; this is the last line of defence.
+    const packLeak = findModelMention(
+      [
+        taskMeta.judge_prompt,
+        taskMeta.wrapper,
+        taskMeta.task_body,
+        ...(taskMeta.must_mention ?? []),
+      ].join("\n"),
+      candidateIds,
+    );
+    if (packLeak) {
+      const message = `blindness check failed: pack text names candidate model "${packLeak}"`;
+      prepare(
+        `UPDATE task_results SET status = 'error', error = ?, finished_at = ?
+         WHERE id = ?`,
+      ).run(
+        JSON.stringify({ kind: "judging_failure", message }),
+        Date.now(),
+        taskResultId,
+      );
+      this.emitTaskStatus(runId, taskResultId, "error", {
+        kind: "judging_failure",
+        message,
+      });
+      this.emitEvent(runId, "notice", {
+        runId,
+        scope: "task",
+        code: "JUDGING_EXCLUDED",
+        message:
+          "Task excluded from scoring (pack text names a candidate model) — does not penalize the model.",
+        taskResultId,
+        details: { kind: "judging_failure", reason: "blind_conflict" },
+      });
+      return;
+    }
+
+    // An answer that names a model must still be judged, so names are masked
+    // instead of failing the task.
+    const answer = maskModelMentions(
+      stripThinkTags(row.raw_output ?? ""),
+      candidateIds,
+    );
+    if (answer.masked > 0) {
+      this.emitEvent(runId, "notice", {
+        runId,
+        scope: "task",
+        code: "MODEL_NAMES_MASKED",
+        message: `Masked ${answer.masked} model name mention(s) in the answer before judging.`,
+        taskResultId,
+        details: { masked: answer.masked },
+      });
+    }
+
+    type AttemptOutcome = {
+      ok: boolean;
+      parsed: JudgeOutput | null;
+      result: StreamChatResult | null;
+      parse_status: "first_try" | "repaired" | "invalid";
+      evidence: string | null;
+      /** The call itself failed (network, rate limit, timeout) — not a formatting problem. */
+      infra: boolean;
+      /** The run was cancelled or the call was aborted mid-flight. */
+      aborted: boolean;
+    };
+
+    const runAttempt = async (
+      jid: string,
+      attempt: number,
+      repairErrors?: string,
+    ): Promise<AttemptOutcome> => {
+      const userParts = [
+        `ORIGINAL TASK:\n${taskMeta.wrapper}\n\n${taskMeta.task_body}`,
+        validatorBlock,
+        `CANDIDATE ANSWER:\n${answer.text}`,
+      ];
+      if (answer.masked > 0) {
+        userParts.push(MODEL_NAMES_MASKED_NOTE);
+      }
+      if (row.finish_reason === "length") {
+        userParts.push(PLATFORM_TRUNCATION_NOTE);
+      }
+      if (taskMeta.must_mention && taskMeta.must_mention.length > 0) {
+        userParts.push(
+          `MUST MENTION / EXPECTED NOTES (judge-only; the candidate did not see this):\n${taskMeta.must_mention.map((m) => `- ${m}`).join("\n")}`,
+        );
+      }
+      if (repairErrors) {
+        userParts.push(
+          `Your previous reply was not valid JSON matching the schema. Errors: ${repairErrors}. Reply with ONLY the JSON object.`,
+        );
+      }
+      const messages = [
+        {
+          role: "system" as const,
+          // Runtime wrap so already-seeded DB prompts also enforce English.
+          content: withJudgeEnglishOnly(taskMeta.judge_prompt),
+        },
+        { role: "user" as const, content: userParts.join("\n\n") },
+      ];
+
+      this.emitEvent(runId, "judge.started", {
+        runId,
+        taskResultId,
+        judgeModelId: jid,
+        attempt,
+      });
+
+      let pending = "";
+      let last = 0;
+      const flush = (force = false) => {
+        if (!pending) return;
+        const now = Date.now();
+        if (!force && now - last < 66) return;
+        this.emitEvent(runId, "judge.delta", {
+          runId,
+          taskResultId,
+          judgeModelId: jid,
+          delta: pending,
+        });
+        pending = "";
+        last = now;
+      };
+
+      try {
+        const result = await streamChat({
+          model: jid,
+          messages,
+          temperature: 0,
+          maxTokens: JUDGE_MAX_TOKENS,
+          excludeReasoning: true,
+          responseFormat: {
+            name: "judge_output",
+            schema: judgeOutputJsonSchema,
+          },
+          signal: ctrl.abortController.signal,
+          allowRetryAfterPartial: true,
+          deadlineMs: getCallDeadlineMs(),
+          maxRetries: getMaxRetries(),
+          apiKey: this.resolveRunKey(runId),
+          onDelta: (d) => {
+            pending += d;
+            flush();
+          },
+          onRetry: (a, delayMs, reason) => {
+            this.emitEvent(runId, "notice", {
+              runId,
+              scope: "task",
+              code: "RETRY_SCHEDULED",
+              message: `Judge retry ${a} (${reason})`,
+              taskResultId,
+              details: { attempt: a, delayMs, reason },
+            });
+          },
+        });
+        flush(true);
+
+        const parsed = parseJudgeOutput(result.text, {
+          repaired: Boolean(repairErrors),
+        });
+        return {
+          ok: parsed.ok,
+          parsed: parsed.parsed,
+          result,
+          parse_status: parsed.parse_status,
+          evidence: parsed.evidence,
+          infra: false,
+          aborted: false,
+        };
+      } catch (err) {
+        const kind = err instanceof OpenRouterError ? err.kind : "judge_call";
+        return {
+          ok: false,
+          parsed: null,
+          result: null,
+          parse_status: "invalid",
+          evidence: `infra: ${kind}: ${err instanceof Error ? err.message : "judge call failed"}`,
+          infra: true,
+          aborted: kind === "aborted",
+        };
+      }
+    };
+
+    /** Insert one attempt row and bill it. Returns the row id. */
+    const persistAttempt = (
+      jid: string,
+      attempt: number,
+      parse_status: "first_try" | "repaired" | "invalid",
+      is_final: boolean,
+      parsed: JudgeOutput | null,
+      result: StreamChatResult | null,
+      evidence: string | null,
+      substitute: boolean,
+      substitutedFor: string | null,
+    ): string => {
+      const id = randomUUID();
+      const server =
+        parsed != null
+          ? (parsed.scores.correctness +
+              parsed.scores.requirement_compliance +
+              parsed.scores.quality +
+              parsed.scores.honesty) /
+            4
+          : null;
+      prepare(
+        `INSERT INTO judgment_attempts (
+          id, task_result_id, judge_model_id, attempt, is_final, is_substitute,
+          substituted_for, raw_output, parsed_json, evidence, parse_status,
+          score_correctness, score_compliance, score_quality, score_honesty,
+          claimed_overall, server_overall, verdict, prompt_tokens, completion_tokens,
+          cost_usd, latency_ms, temperature, provider, created_at
+        ) VALUES (
+          @id, @task_result_id, @judge_model_id, @attempt, @is_final, @is_substitute,
+          @substituted_for, @raw_output, @parsed_json, @evidence, @parse_status,
+          @score_correctness, @score_compliance, @score_quality, @score_honesty,
+          @claimed_overall, @server_overall, @verdict, @prompt_tokens, @completion_tokens,
+          @cost_usd, @latency_ms, @temperature, @provider, @created_at
+        )`,
+      ).run({
+        id,
+        task_result_id: taskResultId,
+        judge_model_id: jid,
+        attempt,
+        is_final: is_final ? 1 : 0,
+        is_substitute: substitute ? 1 : 0,
+        substituted_for: substitutedFor,
+        raw_output: result?.text ?? null,
+        parsed_json: parsed ? JSON.stringify(parsed) : null,
+        evidence,
+        parse_status,
+        score_correctness: parsed?.scores.correctness ?? null,
+        score_compliance: parsed?.scores.requirement_compliance ?? null,
+        score_quality: parsed?.scores.quality ?? null,
+        score_honesty: parsed?.scores.honesty ?? null,
+        claimed_overall: parsed?.overall_score ?? null,
+        server_overall: server,
+        verdict: parsed?.verdict ?? null,
+        prompt_tokens: result?.usage.prompt_tokens ?? null,
+        completion_tokens: result?.usage.completion_tokens ?? null,
+        cost_usd: result?.usage.cost_usd ?? null,
+        latency_ms: result?.latency_ms ?? null,
+        temperature: 0,
+        provider: result?.provider ?? null,
+        created_at: Date.now(),
+      });
+      if (result) this.addCost(runId, result.usage.cost_usd);
+      return id;
+    };
+
+    // Reserves handed out during this phase, so two failing slots running in
+    // parallel cannot pick the same replacement.
+    const claimedReserves = new Set<string>();
+
+    /**
+     * One panel slot: the judge gets a plain try and a retry, then one reserve
+     * judge gets the same two tries. Returns true when a valid verdict is stored.
+     */
     const judgeOne = async (slot: {
       judge_model_id: string;
       is_substitute: boolean;
       substituted_for: string | null;
-    }) => {
+    }): Promise<boolean> => {
       const reserves = this.reserves(runId, taskMeta.category);
       let judgeId = slot.judge_model_id;
       let isSub = slot.is_substitute;
       let subFor = slot.substituted_for;
-      let attemptNo = 1;
-      let usedReserve = false;
 
-      const maxAttemptForJudge = prepare(
-        `SELECT COALESCE(MAX(attempt), 0) AS m FROM judgment_attempts
-         WHERE task_result_id = ? AND judge_model_id = ?`,
-      ).get(taskResultId, judgeId) as { m: number };
-      attemptNo = maxAttemptForJudge.m + 1;
-
-      const runAttempt = async (
-        jid: string,
-        attempt: number,
-        repairErrors?: string,
-      ): Promise<{
-        ok: boolean;
-        parsed: JudgeOutput | null;
-        result: StreamChatResult | null;
-        parse_status: "first_try" | "repaired" | "invalid";
-        evidence: string | null;
-      }> => {
-        const userParts = [
-          `ORIGINAL TASK:\n${taskMeta.wrapper}\n\n${taskMeta.task_body}`,
-          validatorBlock,
-          `CANDIDATE ANSWER:\n${stripThinkTags(row.raw_output ?? "")}`,
-        ];
-        if (row.finish_reason === "length") {
-          userParts.push(PLATFORM_TRUNCATION_NOTE);
-        }
-        if (taskMeta.must_mention && taskMeta.must_mention.length > 0) {
-          userParts.push(
-            `MUST MENTION / EXPECTED NOTES (judge-only; the candidate did not see this):\n${taskMeta.must_mention.map((m) => `- ${m}`).join("\n")}`,
-          );
-        }
-        if (repairErrors) {
-          userParts.push(
-            `Your previous reply was not valid JSON matching the schema. Errors: ${repairErrors}. Reply with ONLY the JSON object.`,
-          );
-        }
-        const messages = [
-          {
-            role: "system" as const,
-            // Runtime wrap so already-seeded DB prompts also enforce English.
-            content: withJudgeEnglishOnly(taskMeta.judge_prompt),
-          },
-          { role: "user" as const, content: userParts.join("\n\n") },
-        ];
-        this.assertBlind(
-          messages,
-          allCandidates.map((c) => c.model_id),
-        );
-
-        this.emitEvent(runId, "judge.started", {
-          runId,
-          taskResultId,
-          judgeModelId: jid,
-          attempt,
-        });
-
-        let pending = "";
-        let last = 0;
-        const flush = (force = false) => {
-          if (!pending) return;
-          const now = Date.now();
-          if (!force && now - last < 66) return;
-          this.emitEvent(runId, "judge.delta", {
-            runId,
-            taskResultId,
-            judgeModelId: jid,
-            delta: pending,
-          });
-          pending = "";
-          last = now;
-        };
-
-        try {
-          const result = await streamChat({
-            model: jid,
-            messages,
-            temperature: 0,
-            maxTokens: JUDGE_MAX_TOKENS,
-            excludeReasoning: true,
-            responseFormat: {
-              name: "judge_output",
-              schema: judgeOutputJsonSchema,
-            },
-            signal: ctrl.abortController.signal,
-            allowRetryAfterPartial: true,
-            deadlineMs: getCallDeadlineMs(),
-            maxRetries: getMaxRetries(),
-            apiKey: this.resolveRunKey(runId),
-            onDelta: (d) => {
-              pending += d;
-              flush();
-            },
-            onRetry: (a, delayMs, reason) => {
-              this.emitEvent(runId, "notice", {
-                runId,
-                scope: "task",
-                code: "RETRY_SCHEDULED",
-                message: `Judge retry ${a} (${reason})`,
-                taskResultId,
-                details: { attempt: a, delayMs, reason },
-              });
-            },
-          });
-          flush(true);
-
-          const parsed = parseJudgeOutput(result.text, {
-            repaired: Boolean(repairErrors),
-          });
-          return {
-            ok: parsed.ok,
-            parsed: parsed.parsed,
-            result,
-            parse_status: parsed.parse_status,
-            evidence: parsed.evidence,
-          };
-        } catch (err) {
-          const kind =
-            err instanceof OpenRouterError ? err.kind : "judge_call";
-          return {
-            ok: false,
-            parsed: null,
-            result: null,
-            parse_status: "invalid",
-            evidence: `infra: ${kind}: ${err instanceof Error ? err.message : "judge call failed"}`,
-          };
-        }
-      };
-
-      const persistAttempt = (
-        jid: string,
-        attempt: number,
-        parse_status: "first_try" | "repaired" | "invalid",
-        is_final: boolean,
-        parsed: JudgeOutput | null,
-        result: StreamChatResult | null,
-        evidence: string | null,
-        substitute: boolean,
-        substitutedFor: string | null,
-      ) => {
-        const server =
-          parsed != null
-            ? (parsed.scores.correctness +
-                parsed.scores.requirement_compliance +
-                parsed.scores.quality +
-                parsed.scores.honesty) /
-              4
-            : null;
+      let attemptNo = (
         prepare(
-          `INSERT INTO judgment_attempts (
-            id, task_result_id, judge_model_id, attempt, is_final, is_substitute,
-            substituted_for, raw_output, parsed_json, evidence, parse_status,
-            score_correctness, score_compliance, score_quality, score_honesty,
-            claimed_overall, server_overall, verdict, prompt_tokens, completion_tokens,
-            cost_usd, latency_ms, temperature, provider, created_at
-          ) VALUES (
-            @id, @task_result_id, @judge_model_id, @attempt, @is_final, @is_substitute,
-            @substituted_for, @raw_output, @parsed_json, @evidence, @parse_status,
-            @score_correctness, @score_compliance, @score_quality, @score_honesty,
-            @claimed_overall, @server_overall, @verdict, @prompt_tokens, @completion_tokens,
-            @cost_usd, @latency_ms, @temperature, @provider, @created_at
-          )`,
-        ).run({
-          id: randomUUID(),
-          task_result_id: taskResultId,
-          judge_model_id: jid,
-          attempt,
-          is_final: is_final ? 1 : 0,
-          is_substitute: substitute ? 1 : 0,
-          substituted_for: substitutedFor,
-          raw_output: result?.text ?? null,
-          parsed_json: parsed ? JSON.stringify(parsed) : null,
-          evidence,
-          parse_status,
-          score_correctness: parsed?.scores.correctness ?? null,
-          score_compliance: parsed?.scores.requirement_compliance ?? null,
-          score_quality: parsed?.scores.quality ?? null,
-          score_honesty: parsed?.scores.honesty ?? null,
-          claimed_overall: parsed?.overall_score ?? null,
-          server_overall: server,
-          verdict: parsed?.verdict ?? null,
-          prompt_tokens: result?.usage.prompt_tokens ?? null,
-          completion_tokens: result?.usage.completion_tokens ?? null,
-          cost_usd: result?.usage.cost_usd ?? null,
-          latency_ms: result?.latency_ms ?? null,
-          temperature: 0,
-          provider: result?.provider ?? null,
-          created_at: Date.now(),
-        });
-        if (result) this.addCost(runId, result.usage.cost_usd);
-      };
+          `SELECT COALESCE(MAX(attempt), 0) AS m FROM judgment_attempts
+           WHERE task_result_id = ? AND judge_model_id = ?`,
+        ).get(taskResultId, judgeId) as { m: number }
+      ).m;
 
-      // Attempt 1
-      let outcome = await runAttempt(judgeId, attemptNo);
-      if (outcome.ok && outcome.parsed) {
-        persistAttempt(
-          judgeId,
-          attemptNo,
-          outcome.parse_status,
-          true,
-          outcome.parsed,
-          outcome.result,
-          null,
-          isSub,
-          subFor,
-        );
-        this.emitJudgeComplete(
-          runId,
-          taskResultId,
-          judgeId,
-          attemptNo,
-          outcome.parse_status,
-          isSub,
-          subFor,
-          outcome.parsed,
-          outcome.result!,
-        );
-        return true;
-      }
-
-      persistAttempt(
-        judgeId,
-        attemptNo,
-        "invalid",
-        false,
-        null,
-        outcome.result,
-        outcome.evidence,
-        isSub,
-        subFor,
-      );
-
-      // Schema retry (attempt 2)
-      attemptNo += 1;
-      outcome = await runAttempt(judgeId, attemptNo, outcome.evidence ?? "schema");
-      if (outcome.ok && outcome.parsed) {
-        persistAttempt(
-          judgeId,
-          attemptNo,
-          "repaired",
-          true,
-          outcome.parsed,
-          outcome.result,
-          null,
-          isSub,
-          subFor,
-        );
-        this.emitJudgeComplete(
-          runId,
-          taskResultId,
-          judgeId,
-          attemptNo,
-          "repaired",
-          isSub,
-          subFor,
-          outcome.parsed,
-          outcome.result!,
-        );
-        return true;
-      }
-
-      persistAttempt(
-        judgeId,
-        attemptNo,
-        "invalid",
-        false,
-        null,
-        outcome.result,
-        outcome.evidence,
-        isSub,
-        subFor,
-      );
-
-      // Reserve replacement
-      if (!usedReserve) {
+      const pickReserve = (): string | null => {
         const usedIds = new Set(
           (
             prepare(
@@ -1699,55 +1756,59 @@ class RunEngineImpl implements RunEngine {
             ).all(taskResultId) as Array<{ judge_model_id: string }>
           ).map((r) => r.judge_model_id),
         );
-        usedIds.add(judgeId);
         const replacement = reserves.find(
           (r) =>
             r.judge_model_id !== candidateModelId &&
-            !usedIds.has(r.judge_model_id),
+            r.judge_model_id !== judgeId &&
+            !usedIds.has(r.judge_model_id) &&
+            !slotJudgeIds.includes(r.judge_model_id) &&
+            !claimedReserves.has(r.judge_model_id),
         );
-        if (replacement) {
-          usedReserve = true;
-          const original = judgeId;
-          judgeId = replacement.judge_model_id;
-          isSub = true;
-          subFor = original;
-          this.emitEvent(runId, "notice", {
-            runId,
-            scope: "task",
-            code: "JUDGE_REPLACED",
-            message: `Invalid JSON: replaced ${original} with ${judgeId}`,
-            taskResultId,
-            details: { original, replacement: judgeId },
-          });
+        if (!replacement) return null;
+        claimedReserves.add(replacement.judge_model_id);
+        return replacement.judge_model_id;
+      };
 
-          attemptNo = 3;
-          outcome = await runAttempt(judgeId, attemptNo);
+      for (let round = 0; round < 2; round++) {
+        let repairErrors: string | undefined;
+        let lastRowId: string | null = null;
+        let lastOutcome: AttemptOutcome | null = null;
+
+        for (let tryNo = 0; tryNo < 2; tryNo++) {
+          attemptNo += 1;
+          const outcome = await runAttempt(judgeId, attemptNo, repairErrors);
+          // A cancelled run must not leave "invalid JSON" rows against a judge
+          // that never got to answer.
+          if (outcome.aborted || ctrl.cancelRequested) return false;
+
           if (outcome.ok && outcome.parsed) {
+            const status = repairErrors ? "repaired" : outcome.parse_status;
             persistAttempt(
               judgeId,
               attemptNo,
-              outcome.parse_status,
+              status,
               true,
               outcome.parsed,
               outcome.result,
               null,
-              true,
-              original,
+              isSub,
+              subFor,
             );
             this.emitJudgeComplete(
               runId,
               taskResultId,
               judgeId,
               attemptNo,
-              outcome.parse_status,
-              true,
-              original,
+              status,
+              isSub,
+              subFor,
               outcome.parsed,
               outcome.result!,
             );
             return true;
           }
-          persistAttempt(
+
+          lastRowId = persistAttempt(
             judgeId,
             attemptNo,
             "invalid",
@@ -1755,94 +1816,72 @@ class RunEngineImpl implements RunEngine {
             null,
             outcome.result,
             outcome.evidence,
-            true,
-            original,
+            isSub,
+            subFor,
           );
-          // Inner schema retry as attempt 4
-          attemptNo = 4;
-          outcome = await runAttempt(
-            judgeId,
-            attemptNo,
-            outcome.evidence ?? "schema",
-          );
-          if (outcome.ok && outcome.parsed) {
-            persistAttempt(
-              judgeId,
-              attemptNo,
-              "repaired",
-              true,
-              outcome.parsed,
-              outcome.result,
-              null,
-              true,
-              original,
-            );
-            this.emitJudgeComplete(
-              runId,
-              taskResultId,
-              judgeId,
-              attemptNo,
-              "repaired",
-              true,
-              original,
-              outcome.parsed,
-              outcome.result!,
-            );
-            return true;
+          lastOutcome = outcome;
+          // A failed call is not a formatting mistake: retry it plainly instead
+          // of telling the judge its JSON was wrong.
+          repairErrors = outcome.infra
+            ? undefined
+            : (outcome.evidence ?? "schema");
+        }
+
+        const replacement = round === 0 ? pickReserve() : null;
+        if (!replacement) {
+          // Out of options: the last attempt stands as this slot's final answer.
+          if (lastRowId) {
+            prepare(
+              `UPDATE judgment_attempts SET is_final = 1 WHERE id = ?`,
+            ).run(lastRowId);
           }
-          persistAttempt(
-            judgeId,
-            attemptNo,
-            "invalid",
-            true,
-            null,
-            outcome.result,
-            outcome.evidence,
-            true,
-            original,
-          );
           this.emitJudgeComplete(
             runId,
             taskResultId,
             judgeId,
             attemptNo,
             "invalid",
-            true,
-            original,
+            isSub,
+            subFor,
             null,
-            outcome.result,
+            lastOutcome?.result ?? null,
           );
           return false;
         }
-      }
 
-      // No reserve — finalize invalid
-      persistAttempt(
-        judgeId,
-        attemptNo,
-        "invalid",
-        true,
-        null,
-        outcome.result,
-        outcome.evidence,
-        isSub,
-        subFor,
-      );
-      this.emitJudgeComplete(
-        runId,
-        taskResultId,
-        judgeId,
-        attemptNo,
-        "invalid",
-        isSub,
-        subFor,
-        null,
-        outcome.result,
-      );
+        const original = judgeId;
+        judgeId = replacement;
+        isSub = true;
+        subFor = original;
+        this.emitEvent(runId, "notice", {
+          runId,
+          scope: "task",
+          code: "JUDGE_REPLACED",
+          message: `${lastOutcome?.infra ? "Judge call failed" : "Invalid JSON"}: replaced ${original} with ${judgeId}`,
+          taskResultId,
+          details: { original, replacement: judgeId },
+        });
+      }
       return false;
     };
 
-    await Promise.allSettled(slots.map((s) => judgeOne(s)));
+    // Judge slots run through a small pool sized by the Settings value.
+    const judgeLimit = Math.max(
+      1,
+      Math.min(3, Math.floor(getAppSettings().judgeConcurrency) || 3),
+    );
+    const slotQueue = [...slots];
+    await Promise.all(
+      Array.from({ length: Math.min(judgeLimit, slotQueue.length) }, async () => {
+        for (let slot = slotQueue.shift(); slot; slot = slotQueue.shift()) {
+          try {
+            await judgeOne(slot);
+          } catch (err) {
+            console.error("[run-engine] judge slot failed", taskResultId, err);
+          }
+        }
+      }),
+    );
     if (ctrl.cancelRequested) return;
 
     const validCount = (
@@ -1892,10 +1931,15 @@ class RunEngineImpl implements RunEngine {
       });
     }
 
-    const agg = aggregateTask(taskResultId);
-    prepare(
-      `UPDATE task_results SET status = 'scored', finished_at = ? WHERE id = ?`,
-    ).run(Date.now(), taskResultId);
+    // Score row and scored status commit together (lib/db.ts invariant), so a
+    // crash cannot leave one without the other.
+    const agg = getDb().transaction(() => {
+      const result = aggregateTask(taskResultId);
+      prepare(
+        `UPDATE task_results SET status = 'scored', finished_at = ? WHERE id = ?`,
+      ).run(Date.now(), taskResultId);
+      return result;
+    })();
 
     const tr = prepare(
       `SELECT tr.*, t.category FROM task_results tr
