@@ -14,7 +14,7 @@ import {
   median,
   panelConfidenceAdjusted,
 } from "@/lib/scoring";
-import { parseJudgeOutput } from "@/lib/judge-parse";
+import { PLATFORM_TRUNCATION_NOTE, parseJudgeOutput } from "@/lib/judge-parse";
 import {
   CHAT_CATEGORY_ORDER,
   CHAT_LIMITS,
@@ -99,9 +99,6 @@ type MessageRow = {
   content: string;
   finish_reason?: string | null;
 };
-
-const PLATFORM_TRUNCATION_NOTE =
-  "[PLATFORM NOTE: The response above was cut off by the platform output-token limit, not by the model. Do NOT penalize it for being incomplete or ending mid-sentence.]";
 
 type JudgeVote = { judgeModelId: string; category: ChatCategory; confidence: number };
 

@@ -375,6 +375,12 @@ export type ApplyResult = {
   unknownCell: boolean;
   terminal: boolean;
   needsResync: boolean;
+  /**
+   * Nothing a store subscriber renders changed (a token delta on a cell that
+   * is already streaming, or a heartbeat). The stream hook skips the store
+   * emit for these; token text reaches the open panel through its own buffer.
+   */
+  quiet: boolean;
   notice?: { code: string; message: string };
 };
 
@@ -390,6 +396,7 @@ export function applySseEvent(
     unknownCell: false,
     terminal: false,
     needsResync: false,
+    quiet: false,
   };
 
   switch (event.event) {
@@ -437,7 +444,11 @@ export function applySseEvent(
       if (event.data.tokens != null && event.data.tokens > trial.answer.tokens) {
         trial.answer.tokens = event.data.tokens;
       }
-      if (trial.status === "pending") trial.status = "streaming";
+      if (trial.status === "pending") {
+        trial.status = "streaming";
+      } else {
+        result.quiet = true;
+      }
       break;
     }
     case "candidate.complete": {
@@ -521,6 +532,8 @@ export function applySseEvent(
           attempt: 1,
           started: true,
         });
+      } else {
+        result.quiet = true;
       }
       break;
     }
@@ -603,6 +616,7 @@ export function applySseEvent(
     }
     case "heartbeat": {
       // watchdog only
+      result.quiet = true;
       break;
     }
     default: {

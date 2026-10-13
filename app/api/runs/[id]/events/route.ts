@@ -33,6 +33,12 @@ export async function GET(request: Request, ctx: Params) {
   let closed = false;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let highestSent = cursor;
+  // Hoisted so cancel() runs the same teardown as the abort and terminal paths;
+  // otherwise a disconnect can leave the emitter listener attached.
+  let teardown = () => {
+    closed = true;
+    if (heartbeat) clearInterval(heartbeat);
+  };
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -141,6 +147,7 @@ export async function GET(request: Request, ctx: Params) {
         }
       };
       request.signal.addEventListener("abort", onAbort);
+      teardown = cleanup;
 
       function cleanup() {
         if (closed) return;
@@ -151,8 +158,7 @@ export async function GET(request: Request, ctx: Params) {
       }
     },
     cancel() {
-      closed = true;
-      if (heartbeat) clearInterval(heartbeat);
+      teardown();
     },
   });
 

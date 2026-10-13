@@ -268,7 +268,9 @@ export function RunStoreProvider({
         setConnection("closed");
       }
 
-      emit();
+      // Token deltas arrive ~15 times a second per stream. Cloning the store
+      // and re-rendering the grid for each one is wasted work.
+      if (!result.quiet) emit();
     },
     [appendBuffer, emit, rehydrate, setBufferDone, setConnection],
   );

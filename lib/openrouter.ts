@@ -207,7 +207,7 @@ export function hasApiKey(userKey?: string | null): boolean {
 function attributionHeaders(apiKey: string): Record<string, string> {
   return {
     Authorization: `Bearer ${apiKey}`,
-    "HTTP-Referer": "http://localhost:3000",
+    "HTTP-Referer": process.env.AUTH_URL?.trim() || "http://localhost:3000",
     "X-Title": "AI Judge",
     "Content-Type": "application/json",
   };
@@ -275,13 +275,47 @@ function deriveSupportsStructured(raw: unknown): boolean {
   );
 }
 
-function rowToCatalogModel(row: {
+type CatalogRow = {
   openrouter_id: string;
   name: string;
   context_length: number | null;
   pricing_json: string;
   raw_json: string;
-}): CatalogModel {
+};
+
+/**
+ * Parsed catalog entries keyed by model id. A hit is only used when the row's
+ * stored text is unchanged, so this can never serve a stale model — it just
+ * skips re-parsing the same JSON on every lookup.
+ */
+const catalogMemo = new Map<string, { row: CatalogRow; model: CatalogModel }>();
+
+function rowToCatalogModel(row: CatalogRow): CatalogModel {
+  const hit = catalogMemo.get(row.openrouter_id);
+  if (
+    hit &&
+    hit.row.raw_json === row.raw_json &&
+    hit.row.pricing_json === row.pricing_json &&
+    hit.row.name === row.name &&
+    hit.row.context_length === row.context_length
+  ) {
+    return hit.model;
+  }
+  const model = parseCatalogRow(row);
+  catalogMemo.set(row.openrouter_id, {
+    row: {
+      openrouter_id: row.openrouter_id,
+      name: row.name,
+      context_length: row.context_length,
+      pricing_json: row.pricing_json,
+      raw_json: row.raw_json,
+    },
+    model,
+  });
+  return model;
+}
+
+function parseCatalogRow(row: CatalogRow): CatalogModel {
   let pricing: CatalogModel["pricing"] = null;
   try {
     pricing = JSON.parse(row.pricing_json) as CatalogModel["pricing"];
@@ -1101,16 +1135,8 @@ export async function streamChat(
         throw orErr;
       }
 
-      // Candidate streams with delivered deltas: do not silently retry
-      if (
-        !params.allowRetryAfterPartial &&
-        /partial|delivered/i.test(orErr.message) === false
-      ) {
-        // Check via a property we attach from streamChatOnce failures mid-stream
-        // Mid-stream errors after deltas: orErr may be rate_limited/upstream.
-        // We detect delivered deltas by inspecting a custom flag if present.
-      }
-
+      // Candidate streams with delivered deltas: do not silently retry.
+      // parseSseStream attaches the flag to mid-stream failures.
       const delivered =
         (orErr as OpenRouterError & { deliveredDeltas?: boolean })
           .deliveredDeltas === true;
@@ -1119,7 +1145,7 @@ export async function streamChat(
         throw orErr;
       }
 
-      if (!orErr.retryable || attempt >= 3) {
+      if (!orErr.retryable || attempt >= maxAttempts) {
         orErr.attempts = attempt;
         throw orErr;
       }
@@ -1131,10 +1157,12 @@ export async function streamChat(
   }
 
   if (lastError) {
-    lastError.attempts = 3;
+    lastError.attempts = maxAttempts;
     throw lastError;
   }
-  throw new OpenRouterError("upstream", "streamChat failed", { attempts: 3 });
+  throw new OpenRouterError("upstream", "streamChat failed", {
+    attempts: maxAttempts,
+  });
 }
 
 /** Cost helper used when usage was missing — pricing cache × tokens. */

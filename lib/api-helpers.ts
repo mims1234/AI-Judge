@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { z } from "zod";
+import { OPENROUTER_KEY_HEADER } from "@/lib/client/apiKey";
 import { EPHEMERAL_SSE_EVENTS } from "@/lib/schemas";
 
 export type ApiErrorCode =
@@ -22,7 +23,7 @@ export type ApiErrorCode =
   | "SAFETY_REFUSED";
 
 /** Header clients send with a user-supplied OpenRouter key (BYOK). */
-export const OPENROUTER_KEY_HEADER = "x-openrouter-key";
+export { OPENROUTER_KEY_HEADER };
 
 /**
  * Read optional user OpenRouter key from the request.
