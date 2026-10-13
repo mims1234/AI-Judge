@@ -27,6 +27,11 @@ function buildProviders() {
       Discord({
         clientId: process.env.AUTH_DISCORD_ID,
         clientSecret: process.env.AUTH_DISCORD_SECRET,
+        // Discord now returns an `iss` parameter on the OAuth callback
+        // (RFC 9207). Auth.js compares it to the provider's issuer and falls
+        // back to a placeholder when none is set, which rejects every sign-in.
+        // This is the issuer Discord publishes in its server metadata.
+        issuer: "https://discord.com",
         authorization: { params: { scope: "identify" } },
       }),
     );
