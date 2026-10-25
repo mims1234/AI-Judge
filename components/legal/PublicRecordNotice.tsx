@@ -29,7 +29,7 @@ export function PublicRecordNotice({
       </p>
       <p className="mt-1.5 text-sm leading-6 text-body">
         {COPY[kind]}{" "}
-        <Link href="/privacy" className="text-teal-300 hover:text-teal-200">
+        <Link href="/privacy" className="text-teal-300 underline underline-offset-2 hover:text-teal-200">
           Privacy
         </Link>
       </p>
