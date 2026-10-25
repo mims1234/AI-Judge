@@ -4,6 +4,9 @@ module.exports = {
       name: "ai-judge",
       cwd: "/root/mims/AI-Judge",
       script: "node_modules/next/dist/bin/next",
+      // Run under the Node that loads this file (the deploy's pinned Node 22),
+      // not the PM2 daemon's own Node, so native addons match their build.
+      interpreter: process.execPath,
       args: "start -H 127.0.0.1 -p 3017",
       instances: 1,
       exec_mode: "fork",

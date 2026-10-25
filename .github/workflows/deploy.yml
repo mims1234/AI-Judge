@@ -35,6 +35,17 @@ jobs:
     runs-on: self-hosted
 
     steps:
+      # Pin Node for every step, including the PM2 app (ecosystem.config.js
+      # uses this binary as its interpreter). The VPS /usr/bin/node is older
+      # than the Node 22 that node_modules native addons are built for.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Show Node version
+        run: |
+          echo "node $(node -v) at $(command -v node)"
+
       # Runs before anything is changed, so a failed backup leaves the live app
       # untouched. New migrations apply on the first request after restart.
       - name: Back up database
