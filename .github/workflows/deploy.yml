@@ -35,6 +35,12 @@ jobs:
     runs-on: self-hosted
 
     steps:
+      # setup-node puts its own bin first on PATH, and an older pm2 can live
+      # there. Keep the pm2 CLI that matches the running daemon.
+      - name: Locate PM2
+        run: |
+          echo "PM2=$(command -v pm2)" >> "$GITHUB_ENV"
+
       # Pin Node for every step, including the PM2 app (ecosystem.config.js
       # uses this binary as its interpreter). The VPS /usr/bin/node is older
       # than the Node 22 that node_modules native addons are built for.
@@ -45,6 +51,7 @@ jobs:
       - name: Show Node version
         run: |
           echo "node $(node -v) at $(command -v node)"
+          echo "pm2 $("$PM2" -v) at $PM2"
 
       # Runs before anything is changed, so a failed backup leaves the live app
       # untouched. New migrations apply on the first request after restart.
@@ -181,12 +188,12 @@ jobs:
           echo "--- Reloading ai-judge from ecosystem.config.js ---"
           # Stop only after a successful build. Delete + start from this
           # repo's ecosystem. Do NOT use --update-env.
-          pm2 stop ai-judge || true
-          pm2 delete ai-judge || true
-          pm2 start ecosystem.config.js
-          pm2 save
+          "$PM2" stop ai-judge || true
+          "$PM2" delete ai-judge || true
+          "$PM2" start ecosystem.config.js
+          "$PM2" save
           echo "--- PM2 describe ---"
-          pm2 describe ai-judge | head -n 80 || true
+          "$PM2" describe ai-judge | head -n 80 || true
 
       - name: Verify Deployment
         env:
@@ -196,7 +203,7 @@ jobs:
           set -euo pipefail
           cd /root/mims/AI-Judge
           echo "--- PM2 Status ---"
-          pm2 status ai-judge
+          "$PM2" status ai-judge
           echo "--- .env.local presence (values hidden) ---"
           if [ -f .env.local ]; then
             echo ".env.local found ($(wc -l < .env.local) lines, mode $(stat -c %a .env.local 2>/dev/null || echo '?'))"
@@ -219,11 +226,11 @@ jobs:
           echo "--- SQLite data directory ---"
           ls -ld data || echo "WARNING: data directory MISSING"
           sleep 3
-          status=$(pm2 jlist | python3 -c "import sys,json; apps=json.load(sys.stdin); print(next((a['pm2_env']['status'] for a in apps if a['name']=='ai-judge'), 'missing'))")
+          status=$("$PM2" jlist | python3 -c "import sys,json; apps=json.loads([l for l in sys.stdin if l.startswith('[')][-1]); print(next((a['pm2_env']['status'] for a in apps if a['name']=='ai-judge'), 'missing'))")
           echo "ai-judge status: $status"
           if [ "$status" != "online" ]; then
             echo "--- recent error log ---"
-            pm2 logs ai-judge --err --lines 20 --nostream || true
+            "$PM2" logs ai-judge --err --lines 20 --nostream || true
             exit 1
           fi
           echo "--- Loopback health ---"
@@ -237,7 +244,7 @@ jobs:
           done
           if [ "$HEALTHY" -ne 1 ]; then
             echo "ERROR: http://127.0.0.1:3017/ did not respond"
-            pm2 logs ai-judge --err --lines 40 --nostream || true
+            "$PM2" logs ai-judge --err --lines 40 --nostream || true
             exit 1
           fi
           echo "--- Deploy complete ---"
